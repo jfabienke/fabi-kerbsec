@@ -103,6 +103,29 @@ pub struct KerberosConfig {
     pub kccache: Option<String>,
     /// Optional channel bindings for enhanced security
     pub channel_bindings: Option<ChannelBindings>,
+    /// Enable GSS_C_DCE_STYLE flag for DCE/RPC compatibility
+    ///
+    /// When enabled, this flag:
+    /// - Disables GSS sequence number checking (DCE has its own)
+    /// - Allows out-of-order message processing
+    /// - Prevents GSS replay cache from interfering with DCE/RPC
+    ///
+    /// Default: true (recommended for DCE/RPC)
+    pub enable_dce_style: bool,
+    /// Enable credential delegation (GSS_C_DELEG_FLAG)
+    ///
+    /// When enabled, allows the server to impersonate the client
+    /// for accessing other services (S4U2Self/S4U2Proxy scenarios).
+    ///
+    /// Default: false (for security)
+    pub enable_delegation: bool,
+    /// Require mutual authentication (GSS_C_MUTUAL_FLAG)
+    ///
+    /// Already enabled by default for security, but exposed
+    /// for cases where you might need to disable it (not recommended).
+    ///
+    /// Default: true
+    pub require_mutual_auth: bool,
 }
 
 impl KerberosConfig {
@@ -114,7 +137,7 @@ impl KerberosConfig {
 }
 
 /// Builder for `KerberosConfig` with sensible defaults
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct KerberosConfigBuilder {
     realm: Option<String>,
     target_host: Option<String>,
@@ -124,18 +147,34 @@ pub struct KerberosConfigBuilder {
     gss_timeout: Duration,
     kccache: Option<String>,
     channel_bindings: Option<ChannelBindings>,
+    enable_dce_style: bool,
+    enable_delegation: bool,
+    require_mutual_auth: bool,
+}
+
+impl Default for KerberosConfigBuilder {
+    fn default() -> Self {
+        Self {
+            realm: None,
+            target_host: None,
+            spn_override: None,
+            default_auth: AuthLevel::Privacy,
+            dns_timeout: Duration::from_secs(5),
+            gss_timeout: Duration::from_secs(30),
+            kccache: None,
+            channel_bindings: None,
+            enable_dce_style: true,  // Default true for DCE/RPC
+            enable_delegation: false,  // Default false for security
+            require_mutual_auth: true,  // Default true for security
+        }
+    }
 }
 
 impl KerberosConfigBuilder {
     /// Create a new builder with defaults
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            default_auth: AuthLevel::Privacy,
-            dns_timeout: Duration::from_secs(5),
-            gss_timeout: Duration::from_secs(30),
-            ..Default::default()
-        }
+        Self::default()
     }
 
     /// Set the Kerberos realm
@@ -194,6 +233,45 @@ impl KerberosConfigBuilder {
         self
     }
 
+    /// Enable or disable GSS_C_DCE_STYLE flag
+    ///
+    /// When enabled (default), this flag:
+    /// - Disables GSS sequence number checking (DCE has its own)
+    /// - Allows out-of-order message processing
+    /// - Prevents GSS replay cache from interfering with DCE/RPC
+    ///
+    /// You should only disable this if you're not using DCE/RPC.
+    #[must_use]
+    pub const fn dce_style(mut self, enable: bool) -> Self {
+        self.enable_dce_style = enable;
+        self
+    }
+
+    /// Enable credential delegation (GSS_C_DELEG_FLAG)
+    ///
+    /// When enabled, allows the server to impersonate the client
+    /// for accessing other services (S4U2Self/S4U2Proxy scenarios).
+    ///
+    /// # Security Warning
+    ///
+    /// Only enable delegation when you trust the server completely,
+    /// as it allows the server to act on your behalf.
+    #[must_use]
+    pub const fn delegation(mut self, enable: bool) -> Self {
+        self.enable_delegation = enable;
+        self
+    }
+
+    /// Require mutual authentication (GSS_C_MUTUAL_FLAG)
+    ///
+    /// Enabled by default for security. Only disable if you have
+    /// a specific reason and understand the security implications.
+    #[must_use]
+    pub const fn mutual_auth(mut self, require: bool) -> Self {
+        self.require_mutual_auth = require;
+        self
+    }
+
     /// Build config synchronously (requires canonicalized FQDN)
     ///
     /// # Errors
@@ -230,6 +308,9 @@ impl KerberosConfigBuilder {
             gss_timeout: self.gss_timeout,
             kccache: self.kccache.or_else(|| std::env::var("KRB5CCNAME").ok()),
             channel_bindings: self.channel_bindings,
+            enable_dce_style: self.enable_dce_style,
+            enable_delegation: self.enable_delegation,
+            require_mutual_auth: self.require_mutual_auth,
         };
 
         #[cfg(feature = "trace")]
@@ -289,6 +370,9 @@ impl KerberosConfigBuilder {
             gss_timeout: self.gss_timeout,
             kccache: self.kccache.or_else(|| std::env::var("KRB5CCNAME").ok()),
             channel_bindings: self.channel_bindings,
+            enable_dce_style: self.enable_dce_style,
+            enable_delegation: self.enable_delegation,
+            require_mutual_auth: self.require_mutual_auth,
         };
 
         #[cfg(feature = "trace")]

@@ -2,6 +2,7 @@
 
 ## Table of Contents
 
+- [GSS Flags Configuration](#gss-flags-configuration)
 - [Logging Configuration](#logging-configuration)
 - [Credential Cache](#credential-cache-krb5ccname)
 - [Mechanism OID](#mechanism-oid)
@@ -11,6 +12,111 @@
 - [Environment Variables](#environment-variables)
 - [Security Considerations](#security-considerations)
 - [Troubleshooting](#troubleshooting)
+
+## GSS Flags Configuration
+
+kerbsec provides runtime configuration for critical GSS-API flags that control authentication behavior:
+
+### DCE-Style Flag (GSS_C_DCE_STYLE)
+
+The DCE-style flag (0x1000) modifies GSS-API behavior for DCE/RPC compatibility:
+
+```rust
+let config = KerberosConfig::builder()
+    .dce_style(true)  // Default: true
+    .build()?;
+```
+
+**When enabled (default):**
+- Disables GSS sequence number checking (DCE/RPC has its own)
+- Allows out-of-order message processing
+- Prevents GSS replay cache from interfering with DCE/RPC
+
+**When to disable:**
+- Non-DCE/RPC Kerberos applications
+- Standard GSS-API usage without RPC framing
+
+### Credential Delegation (GSS_C_DELEG_FLAG)
+
+Allows the server to impersonate the client:
+
+```rust
+let config = KerberosConfig::builder()
+    .delegation(true)  // Default: false
+    .build()?;
+
+// After authentication
+if ctx.has_delegated_credentials() {
+    match ctx.export_delegated_credentials() {
+        Ok(creds) => {
+            // Use for S4U2Self/S4U2Proxy
+            println!("Got {} bytes of delegated credentials", creds.len());
+        }
+        Err(e) => {
+            println!("Delegation not available: {}", e);
+        }
+    }
+}
+```
+
+**Use cases:**
+- Multi-tier architectures where middle tier needs client's identity
+- Services that access resources on behalf of users
+- S4U2Self and S4U2Proxy scenarios
+
+**Security considerations:**
+- Only enable for completely trusted servers
+- Server can impersonate client to any service
+- Monitor delegation usage in audit logs
+
+### Mutual Authentication (GSS_C_MUTUAL_FLAG)
+
+Ensures server authenticates to client:
+
+```rust
+let config = KerberosConfig::builder()
+    .mutual_auth(true)  // Default: true
+    .build()?;
+```
+
+**When enabled (default):**
+- Server must prove its identity
+- Prevents man-in-the-middle attacks
+- Required for secure channel establishment
+
+**When to disable (not recommended):**
+- Legacy systems that don't support mutual auth
+- Testing/debugging scenarios only
+
+### Configuration Examples
+
+#### Standard DCE/RPC (defaults)
+```rust
+// All defaults are optimized for DCE/RPC
+let config = KerberosConfig::builder()
+    .realm("CORP.EXAMPLE.COM")
+    .target_host("server.example.com")
+    .build()?;
+// Results in: DCE-style=true, delegation=false, mutual=true
+```
+
+#### Delegation for Trusted Server
+```rust
+let config = KerberosConfig::builder()
+    .realm("CORP.EXAMPLE.COM")
+    .target_host("trusted-app-tier.example.com")
+    .delegation(true)  // Enable delegation
+    .build()?;
+```
+
+#### Non-DCE Kerberos Application
+```rust
+let config = KerberosConfig::builder()
+    .realm("CORP.EXAMPLE.COM")
+    .target_host("legacy.example.com")
+    .dce_style(false)  // Disable DCE-style
+    .build()?;
+```
 
 ## Logging Configuration
 

@@ -287,20 +287,116 @@ if uses_rc4(etype) {
 }
 ```
 
-## Channel Bindings (Future)
+## Credential Delegation Security
 
-### TLS Integration (v0.2.0)
+### GSS_C_DELEG_FLAG Considerations
+
+Credential delegation (GSS_C_DELEG_FLAG) is a powerful but dangerous feature that allows the server to impersonate the client. This is **disabled by default** for security reasons.
+
+#### Security Risks
+
+1. **Complete Impersonation**: The server can act as the client to any service
+2. **Credential Theft**: Compromised servers can steal delegated credentials
+3. **Lateral Movement**: Attackers can use delegated credentials to move through the network
+4. **Audit Trail Loss**: Actions performed with delegated credentials appear to come from the original client
+
+#### When to Enable Delegation
+
+Only enable delegation when ALL of these conditions are met:
+- The server is fully trusted and under your control
+- The server needs to access resources on behalf of the client
+- No alternative architecture (like token-based authorization) is feasible
+- Strong audit logging is in place
+- The delegation is time-limited
+
+#### Safe Usage Example
 
 ```rust
-// Future: RFC 5929 channel bindings
-let cb = ChannelBindings::from_tls(tls_conn)?;
-config.channel_bindings(Some(cb));
+// Only enable for trusted servers
+let config = KerberosConfig::builder()
+    .realm("CORP.EXAMPLE.COM")
+    .target_host("trusted-internal-server.corp.example.com")
+    .delegation(true)  // DANGEROUS: Only for trusted servers
+    .build()?;
+
+// After authentication, handle delegated credentials carefully
+if ctx.has_delegated_credentials() {
+    // Log the delegation event with full context
+    audit_log!("DELEGATION_GRANTED", client = principal, server = spn);
+
+    // Export credentials with care
+    let creds = ctx.export_delegated_credentials()?;
+
+    // Use credentials with time limits and scope restrictions
+    // Never store delegated credentials persistently
+}
+```
+
+#### Delegation Mitigation Strategies
+
+1. **Constrained Delegation**: Use S4U2Proxy to limit which services can be accessed
+2. **Time Limits**: Set short credential lifetimes
+3. **Audit Everything**: Log all delegation requests and usage
+4. **Network Segmentation**: Isolate servers that require delegation
+5. **Regular Rotation**: Rotate service accounts frequently
+
+### DCE-Style Security (GSS_C_DCE_STYLE)
+
+The GSS_C_DCE_STYLE flag (0x1000) is **enabled by default** for DCE/RPC compatibility. This flag modifies GSS-API behavior:
+
+#### Security Implications
+
+1. **Sequence Checking**: GSS sequence number checking is disabled (DCE/RPC has its own)
+2. **Out-of-Order Messages**: Allows messages to be processed out of order
+3. **Replay Cache**: GSS replay detection is modified to work with DCE/RPC semantics
+
+#### When to Disable DCE-Style
+
+Consider disabling DCE-style only when:
+- Not using DCE/RPC protocols
+- Implementing a custom protocol that needs GSS sequence protection
+- Maximum GSS-API security is required regardless of compatibility
+
+```rust
+// Disable DCE-style for non-DCE protocols
+let config = KerberosConfig::builder()
+    .realm("EXAMPLE.COM")
+    .target_host("server.example.com")
+    .dce_style(false)  // Use standard GSS-API semantics
+    .build()?;
+```
+
+## Channel Bindings
+
+### TLS Integration
+
+Channel bindings tie the Kerberos authentication to the underlying transport, preventing token forwarding attacks:
+
+```rust
+use kerbsec::channel_bindings::{ChannelBindings, ChannelBindingType};
+
+// Create TLS channel bindings
+let cb = ChannelBindings {
+    initiator_addrtype: 0,
+    initiator_address: Vec::new(),
+    acceptor_addrtype: 0,
+    acceptor_address: Vec::new(),
+    application_data: tls_exporter_material,  // From RFC 5929
+    binding_type: Some(ChannelBindingType::TlsServerEndPoint),
+};
+
+let config = KerberosConfig::builder()
+    .realm("EXAMPLE.COM")
+    .target_host("server.example.com")
+    .channel_bindings(Some(cb))
+    .build()?;
 ```
 
 Benefits:
 - Prevents token forwarding
 - Binds Kerberos to TLS session
 - Mitigates MITM attacks
+- Required by some compliance standards
 
 ## Security Testing
 

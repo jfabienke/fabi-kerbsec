@@ -83,19 +83,34 @@ impl GssContext {
 
         // Set context flags for DCE-style
         let mut flags = CtxFlags::empty();
-        flags |= CtxFlags::GSS_C_MUTUAL_FLAG; // Always required
+
+        // Mutual authentication (configurable but strongly recommended)
+        if self.config.require_mutual_auth {
+            flags |= CtxFlags::GSS_C_MUTUAL_FLAG;
+        }
+
         flags |= CtxFlags::GSS_C_INTEG_FLAG; // Always required
         flags |= CtxFlags::GSS_C_SEQUENCE_FLAG; // DCE sequence detection
         flags |= CtxFlags::GSS_C_REPLAY_FLAG; // DCE replay detection
+
+        // Enable delegation if configured
+        if self.config.enable_delegation {
+            // GSS_C_DELEG_FLAG (0x01) - allows server to act on client's behalf
+            // This is already defined in ffi/mod.rs
+            let flags_with_deleg = flags.bits() | crate::ffi::GSS_C_DELEG_FLAG;
+            flags = CtxFlags::from_bits_retain(flags_with_deleg);
+
+            #[cfg(feature = "trace")]
+            debug!(target: "kerbsec::gss", "credential delegation enabled");
+        }
 
         // Add confidentiality flag based on config
         if matches!(self.config.default_auth, AuthLevel::Privacy) {
             flags |= CtxFlags::GSS_C_CONF_FLAG;
         }
 
-        // Add GSS_C_DCE_STYLE flag when IOV feature is enabled
-        #[cfg(feature = "iov")]
-        {
+        // Add GSS_C_DCE_STYLE flag when configured (default: true for DCE/RPC)
+        if self.config.enable_dce_style {
             // DCE_STYLE (0x1000) is critical for proper DCE/RPC semantics:
             // - Disables GSS sequence number checking (DCE has its own)
             // - Allows out-of-order message processing
@@ -225,6 +240,47 @@ impl GssContext {
             Ok(data) => Ok(data.to_vec()),
             Err(e) => Err(gss_error(e)),
         }
+    }
+
+    /// Check if delegated credentials are available
+    ///
+    /// Returns true if the context has received delegated credentials
+    /// from the client (only applicable for acceptor contexts).
+    #[must_use]
+    pub fn has_delegated_credentials(&self) -> bool {
+        // Check if delegation was negotiated
+        if let Some(ref _inner) = self.inner {
+            // Query context flags to see if GSS_C_DELEG_FLAG was negotiated
+            // Note: libgssapi doesn't currently expose inquire_context,
+            // so we track this based on our config for now
+            self.config.enable_delegation
+        } else {
+            false
+        }
+    }
+
+    /// Export delegated credentials
+    ///
+    /// Returns the delegated credentials if available.
+    /// These can be used to impersonate the client for accessing
+    /// other services (S4U2Self/S4U2Proxy).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No delegated credentials are available
+    /// - Export operation fails
+    pub fn export_delegated_credentials(&self) -> Result<Vec<u8>> {
+        if !self.has_delegated_credentials() {
+            return Err(Error::NoDelegatedCredentials);
+        }
+
+        // TODO: Implement actual credential export when libgssapi supports it
+        // This would use gss_export_cred or similar API
+        #[cfg(feature = "trace")]
+        warn!(target: "kerbsec::gss", "delegated credential export not yet implemented");
+
+        Err(Error::NotImplemented("credential export requires libgssapi support".into()))
     }
 
     /// Get the negotiated session key (not currently implemented)

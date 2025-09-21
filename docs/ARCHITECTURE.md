@@ -61,10 +61,15 @@ kerbsec is a lightweight Kerberos security context library designed specifically
   - Parameter validation
   - Default value management
   - DNS canonicalization triggers
+  - GSS flag configuration
 - **Key Types**:
   - `KerberosConfig`: Immutable configuration
   - `KerberosConfigBuilder`: Fluent builder pattern
   - `AuthLevel`: Integrity vs Privacy selection
+- **Runtime Flags** (v0.2.0+):
+  - `enable_dce_style`: DCE/RPC compatibility mode
+  - `enable_delegation`: Credential delegation support
+  - `require_mutual_auth`: Server authentication requirement
 
 #### 3. Security Layer (`src/security/`)
 - **Purpose**: Platform abstraction for GSS-API
@@ -105,9 +110,14 @@ Client (kerbsec)                    Server
        │                               │
        ├──────── AP-REQ ──────────────►│
        │      (initial_token)          │
+       │    [GSS flags applied:        │
+       │     DCE_STYLE, MUTUAL,        │
+       │     DELEG (if enabled)]       │
        │                               │
        │◄──────── AP-REP ──────────────┤
        │      (accept_ap_rep)          │
+       │    [Delegated creds           │
+       │     if DELEG negotiated]      │
        │                               │
        ├──────── Third Leg ───────────►│
        │   (alter_context, may be      │
@@ -219,6 +229,7 @@ impl GssContext {
 │  │   - Intercept messages      │  │
 │  │   - Replay old messages     │  │
 │  │   - Modify in transit       │  │
+│  │   - Steal delegated creds   │  │
 │  └─────────────────────────────┘  │
 └───────────────────────────────────┘
            │
@@ -230,6 +241,14 @@ impl GssContext {
 │   - Confidentiality (encryption)  │
 │   - Replay protection             │
 │   - Sequence detection            │
+│                                   │
+│   DCE-Style (when enabled):       │
+│   - Modified replay handling      │
+│   - Out-of-order message support  │
+│                                   │
+│   Delegation (when enabled):      │
+│   - Controlled impersonation      │
+│   - S4U2Self/S4U2Proxy support    │
 └───────────────────────────────────┘
 ```
 
@@ -270,7 +289,13 @@ kerbsec
 ├── runtime ──► tokio
 ├── iov ──────► (enables IOV code paths)
 ├── trace ────► tracing, tracing-subscriber
-└── ccache ───► (future: credential cache management)
+├── ccache ───► credential cache management
+└── allow-weak-crypto ► RC4 support (DANGEROUS)
+
+ Runtime Configuration (v0.2.0+):
+ ├── DCE-style flag (configurable)
+ ├── Delegation flag (configurable)
+ └── Mutual auth flag (configurable)
 ```
 
 ### Conditional Compilation
@@ -340,6 +365,26 @@ pub const NTLM_MECH_OID: Oid = Oid::new(
 ```
 
 2. Add mechanism-specific logic in context
+
+### GSS Flag Management (v0.2.0+)
+
+GSS flags are now runtime-configurable rather than compile-time:
+
+```rust
+// Configuration layer
+struct KerberosConfig {
+    enable_dce_style: bool,    // GSS_C_DCE_STYLE (0x1000)
+    enable_delegation: bool,   // GSS_C_DELEG_FLAG (0x01)
+    require_mutual_auth: bool, // GSS_C_MUTUAL_FLAG
+}
+
+// GSS layer applies flags
+if config.enable_dce_style {
+    flags |= GSS_C_DCE_STYLE;  // Using from_bits_retain()
+}
+```
+
+This design allows applications to choose security/compatibility trade-offs at runtime without recompilation.
 
 ## Testing Architecture
 

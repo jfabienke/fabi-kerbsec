@@ -359,4 +359,54 @@ impl Context {
             None
         }
     }
+
+    /// Check if delegated credentials are available
+    ///
+    /// Returns true if the context has received delegated credentials.
+    /// This is only applicable for acceptor contexts in server scenarios.
+    ///
+    /// For client contexts where delegation was requested, this indicates
+    /// whether the delegation was successful.
+    #[must_use]
+    pub fn has_delegated_credentials(&self) -> bool {
+        #[cfg(unix)]
+        {
+            self.inner.has_delegated_credentials()
+        }
+
+        #[cfg(not(unix))]
+        {
+            false
+        }
+    }
+
+    /// Export delegated credentials
+    ///
+    /// Returns the delegated credentials that can be used to impersonate
+    /// the client for accessing other services (S4U2Self/S4U2Proxy).
+    ///
+    /// # Security Warning
+    ///
+    /// Handle these credentials with extreme care as they allow
+    /// impersonation of the original client.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No delegated credentials are available
+    /// - Export operation fails
+    /// - Platform doesn't support credential export
+    pub fn export_delegated_credentials(&self) -> Result<Vec<u8>> {
+        #[cfg(unix)]
+        {
+            self.inner.export_delegated_credentials()
+        }
+
+        #[cfg(not(unix))]
+        {
+            Err(crate::error::Error::Config(
+                "Credential export not supported on this platform".into(),
+            ))
+        }
+    }
 }

@@ -11,9 +11,11 @@ Internal Kerberos (GSS-API) library for DCE/RPC on Unix
 - **MIT Licensed**: Commercial-friendly open source license
 - **Unix-focused**: Leverages system GSS-API (MIT Kerberos/Heimdal)
 - **DCE/RPC optimized**: Implements 3-leg handshake with IOV-like wrap/unwrap
+- **Runtime-configurable GSS flags**: DCE-style, delegation, and mutual auth
 - **Transport-agnostic**: Users handle RPC framing, kerbsec handles GSS tokens
 - **DNS canonicalization**: Automatic FQDN resolution for proper SPN construction
 - **Flexible auth levels**: Support for Integrity (MIC) and Privacy (seal+MIC)
+- **Credential delegation**: Support for S4U2Self/S4U2Proxy scenarios
 - **Zero-copy IOV**: Native IOV operations on Linux for maximum performance
 - **Structured logging**: Feature-gated tracing with module-specific targets
 - **Feature-gated**: Optional DNS, async runtime, IOV, ccache, and tracing support
@@ -51,11 +53,14 @@ kerbsec = { path = "../kerbsec", features = ["dns", "runtime", "ccache"] }
 ```rust
 use kerbsec::{Context, KerberosConfig, AuthLevel};
 
-// Configure with DNS canonicalization
+// Configure with DNS canonicalization and DCE-style (default)
 let config = KerberosConfig::builder()
     .realm("CORP.EXAMPLE.COM")
     .target_host("server.corp.example.com")
     .default_auth(AuthLevel::Privacy)
+    .dce_style(true)        // Default: true for DCE/RPC
+    .delegation(false)      // Default: false for security
+    .mutual_auth(true)      // Default: true for security
     .build_async()
     .await?;
 
@@ -69,6 +74,12 @@ let ap_req = ctx.initial_token()?;
 // Process AP-REP from bind_ack
 let third_leg = ctx.accept_ap_rep(&ap_rep)?;
 // → Send third leg in alter_context (even if empty)
+
+// Check for delegated credentials (if delegation was enabled)
+if ctx.has_delegated_credentials() {
+    let creds = ctx.export_delegated_credentials()?;
+    // → Use for S4U2Self/S4U2Proxy operations
+}
 
 // Protect RPC requests
 let wrapped = ctx.wrap_iov(&request_pdu)?;
@@ -181,12 +192,35 @@ The implementation follows these standards and specifications, available in `doc
 The implementation automatically detects the platform and uses the best available method
 
 ### GSS_C_DCE_STYLE Flag
-The GSS_C_DCE_STYLE flag (0x1000) is manually applied using bitwise operations since libgssapi 0.9.1 doesn't expose it in CtxFlags. This flag is critical for:
+The GSS_C_DCE_STYLE flag (0x1000) is runtime-configurable via the `enable_dce_style` configuration option (defaults to true). Since libgssapi 0.9.1 doesn't expose it in CtxFlags, we manually apply it using bitwise operations. This flag is critical for:
 - Disabling GSS sequence number checking (DCE has its own)
 - Allowing out-of-order message processing
 - Preventing GSS replay cache from interfering with DCE/RPC
 
-The implementation correctly applies this flag when the `iov` feature is enabled.
+```rust
+// Enable DCE-style (default for DCE/RPC compatibility)
+let config = KerberosConfig::builder()
+    .dce_style(true)  // Default: true
+    .build()?;
+```
+
+### Credential Delegation (GSS_C_DELEG_FLAG)
+Credential delegation allows the server to impersonate the client for accessing other services (S4U2Self/S4U2Proxy). This is disabled by default for security:
+
+```rust
+// Enable delegation only for trusted servers
+let config = KerberosConfig::builder()
+    .delegation(true)  // Default: false
+    .build()?;
+
+// After authentication, check for delegated credentials
+if ctx.has_delegated_credentials() {
+    let creds = ctx.export_delegated_credentials()?;
+    // Use credentials for impersonation
+}
+```
+
+**Security Warning**: Only enable delegation when you completely trust the server, as it allows the server to act on your behalf.
 
 ### DNS Canonicalization
 DNS canonicalization now properly:

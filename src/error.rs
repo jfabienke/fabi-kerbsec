@@ -65,6 +65,14 @@ pub enum Error {
     #[cfg(feature = "channel-bindings")]
     #[error("Channel binding error: {0}")]
     ChannelBinding(String),
+
+    /// No delegated credentials available
+    #[error("No delegated credentials available")]
+    NoDelegatedCredentials,
+
+    /// Feature not yet implemented
+    #[error("Not implemented: {0}")]
+    NotImplemented(String),
 }
 
 /// Result type alias for operations that may return an Error

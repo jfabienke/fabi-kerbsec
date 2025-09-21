@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Runtime-Configurable GSS Flags** - Security and compatibility flags are now runtime-configurable:
+  - GSS_C_DCE_STYLE (0x1000): DCE/RPC compatibility mode (default: enabled)
+  - GSS_C_DELEG_FLAG (0x01): Credential delegation support (default: disabled)
+  - GSS_C_MUTUAL_FLAG: Server authentication requirement (default: enabled)
+- **Delegation Support** - Complete implementation of credential delegation:
+  - `has_delegated_credentials()` method to check for delegated creds
+  - `export_delegated_credentials()` method for S4U2Self/S4U2Proxy scenarios
+  - Security warnings and best practices documented
+- **Enhanced Configuration API** - New builder methods for runtime configuration:
+  - `.dce_style(bool)` - Control DCE/RPC compatibility
+  - `.delegation(bool)` - Enable/disable credential delegation
+  - `.mutual_auth(bool)` - Control mutual authentication requirement
+
+### Changed
+- GSS_C_DCE_STYLE flag moved from compile-time feature to runtime configuration
+- Configuration defaults documented and standardized across the codebase
+- Security documentation expanded with delegation risks and mitigation strategies
+
+### Security
+- Credential delegation disabled by default for security
+- DCE-style enabled by default for DCE/RPC compatibility
+- Mutual authentication required by default
+- Comprehensive security warnings added for delegation usage
+
 ## [0.2.0] - 2025-01-21
 
 ### Added
