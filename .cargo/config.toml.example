@@ -1,0 +1,12 @@
+# Example configuration for private registry (if needed later)
+# Rename to .cargo/config.toml and uncomment to use
+
+# [registries.internal]
+# index = "https://git.company.internal/crates/index"
+# token = "secret-token"
+
+# [registry]
+# default = "internal"
+
+# [net]
+# git-fetch-with-cli = true
