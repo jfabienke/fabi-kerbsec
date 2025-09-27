@@ -11,10 +11,12 @@ mod tests {
     #[test]
     fn test_iov_wrap_structure() {
         let header = vec![0x01, 0x02, 0x03, 0x04];
+        let payload = vec![0x10, 0x11, 0x12, 0x13];
         let trailer = vec![0x05, 0x06, 0x07, 0x08];
 
         let iov = IovWrap {
             header: header.clone().into(),
+            payload: payload.into(),
             trailer: trailer.clone().into(),
             conf: true,
         };
@@ -28,9 +30,11 @@ mod tests {
     #[test]
     fn test_iov_integrity_only() {
         let header = vec![0x01, 0x02, 0x03, 0x04];
+        let payload = vec![0xAA, 0xBB];
 
         let iov = IovWrap {
             header: header.into(),
+            payload: payload.into(),
             trailer: vec![].into(),
             conf: false,
         };
@@ -45,10 +49,12 @@ mod tests {
     fn test_iov_size_limits() {
         // GSS wrap headers are typically 16-32 bytes
         let typical_header = vec![0u8; 32];
+        let typical_payload = vec![0u8; 128];
         let typical_trailer = vec![0u8; 16];
 
         let iov = IovWrap {
             header: typical_header.into(),
+            payload: typical_payload.into(),
             trailer: typical_trailer.into(),
             conf: true,
         };
@@ -79,6 +85,7 @@ mod tests {
         // IOV protection
         let iov = IovWrap {
             header: vec![0xaa, 0xbb].into(),
+            payload: pdu.body.clone().into(),
             trailer: vec![0xcc, 0xdd].into(),
             conf: true,
         };
@@ -107,8 +114,11 @@ mod tests {
         let mut header = vec![0x05, 0x00]; // GSS header
         header.extend(&sequence_num.to_le_bytes());
 
+        let payload = vec![0x00, 0x01, 0x02];
+
         let iov = IovWrap {
             header: header.into(),
+            payload: payload.into(),
             trailer: vec![].into(),
             conf: false,
         };

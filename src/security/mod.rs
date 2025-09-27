@@ -24,6 +24,8 @@ use bytes::Bytes;
 pub struct IovWrap {
     /// GSS header fragment (goes before/in RPC verifier)
     pub header: Bytes,
+    /// GSS-wrapped payload (plaintext or ciphertext depending on `conf`)
+    pub payload: Bytes,
     /// GSS trailer (MIC or encrypted, goes in auth trailer)
     pub trailer: Bytes,
     /// True if Privacy (sealed), false if Integrity (MIC only)

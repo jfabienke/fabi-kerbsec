@@ -59,8 +59,11 @@ impl MockGssContext {
         trailer.extend_from_slice(&mic);
         trailer.extend_from_slice(&mic[0..4]); // Extra MIC bytes
 
+        let payload = Bytes::copy_from_slice(data);
+
         IovWrap {
             header: Bytes::from(header),
+            payload,
             trailer: Bytes::from(trailer),
             conf: self.auth_level == AuthLevel::Privacy,
         }

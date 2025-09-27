@@ -183,6 +183,7 @@ mod tests {
                 0x00, 0x00, // Flags: no confidentiality
                 0x00, 0x00, 0x00, 0x01, // Sequence number
             ]),
+            payload: Bytes::copy_from_slice(pdu_data),
             trailer: Bytes::from(vec![
                 // MIC only, no encrypted data
                 0xAA, 0xBB, 0xCC, 0xDD, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA,
@@ -206,6 +207,7 @@ mod tests {
                 0x00, 0x02, // Flags: confidentiality enabled
                 0x00, 0x00, 0x00, 0x02, // Sequence number
             ]),
+            payload: Bytes::from(vec![0xEE; pdu_data.len()]),
             trailer: Bytes::from(vec![
                 // Encrypted data + MIC would go here
                 0xFF; 32 // Larger trailer for encrypted padding + MIC

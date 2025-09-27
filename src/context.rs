@@ -166,7 +166,12 @@ impl Context {
 
     /// Set channel bindings
     pub fn set_channel_bindings(&mut self, cb: Option<ChannelBindings>) {
-        self.config.channel_bindings = cb;
+        self.config.channel_bindings = cb.clone();
+
+        #[cfg(unix)]
+        {
+            self.inner.set_channel_bindings(cb);
+        }
     }
 
     /// Generate initial token (AP-REQ) for bind PDU

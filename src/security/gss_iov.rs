@@ -15,6 +15,9 @@ use std::ptr;
 #[cfg(target_os = "linux")]
 use std::slice;
 
+#[cfg(all(feature = "trace", target_os = "linux"))]
+use tracing::{debug, error};
+
 #[cfg(feature = "trace")]
 use tracing::{instrument, warn};
 
@@ -41,16 +44,17 @@ unsafe fn get_raw_ctx_handle(ctx: &ClientCtx) -> ffi::gss_ctx_id_t {
     target = "kerbsec::iov",
     level = "debug",
     skip(_ctx),
-    fields(conf_req = _conf_req, pdu_len = _pdu.len())
+    fields(conf_req, pdu_len = _pdu.len())
 ))]
 pub fn wrap_iov_real(
     _ctx: &mut ClientCtx,
     _pdu: &[u8],
-    _conf_req: bool,
+    conf_req: bool,
 ) -> Result<IovWrap> {
     // IOV is only available on Linux
     #[cfg(not(target_os = "linux"))]
     {
+        let _ = conf_req;
         #[cfg(feature = "trace")]
         warn!(target: "kerbsec::iov", "IOV wrap not available on this platform, falling back");
         Err(Error::Iov("IOV operations not available on this platform".into()))
@@ -68,7 +72,7 @@ pub fn wrap_iov_real(
 
         let mut iov_descs = vec![
             ffi::gss_iov_buffer_desc {
-                type_: ffi::GSS_IOV_BUFFER_TYPE_HEADER | ffi::GSS_IOV_BUFFER_FLAG_ALLOCATE,
+                type_: ffi::GSS_IOV_BUFFER_TYPE_HEADER,
                 buffer: ffi::gss_buffer_desc {
                     length: header_buf.len(),
                     value: header_buf.as_mut_ptr() as *mut _,
@@ -82,14 +86,14 @@ pub fn wrap_iov_real(
                 },
             },
             ffi::gss_iov_buffer_desc {
-                type_: ffi::GSS_IOV_BUFFER_TYPE_PADDING | ffi::GSS_IOV_BUFFER_FLAG_ALLOCATE,
+                type_: ffi::GSS_IOV_BUFFER_TYPE_PADDING,
                 buffer: ffi::gss_buffer_desc {
                     length: padding_buf.len(),
                     value: padding_buf.as_mut_ptr() as *mut _,
                 },
             },
             ffi::gss_iov_buffer_desc {
-                type_: ffi::GSS_IOV_BUFFER_TYPE_TRAILER | ffi::GSS_IOV_BUFFER_FLAG_ALLOCATE,
+                type_: ffi::GSS_IOV_BUFFER_TYPE_TRAILER,
                 buffer: ffi::gss_buffer_desc {
                     length: trailer_buf.len(),
                     value: trailer_buf.as_mut_ptr() as *mut _,
@@ -103,7 +107,7 @@ pub fn wrap_iov_real(
         let major_status = ffi::gss_wrap_iov(
             &mut minor_status,
             ctx_handle,
-            if _conf_req { 1 } else { 0 },
+            if conf_req { 1 } else { 0 },
             ffi::GSS_C_QOP_DEFAULT,
             &mut conf_state,
             iov_descs.as_mut_ptr(),
@@ -122,29 +126,26 @@ pub fn wrap_iov_real(
         }
 
         // Extract the actual used lengths
-        let header_len = iov_descs[0].buffer.length;
-        let trailer_len = iov_descs[3].buffer.length;
+        let header_len = iov_descs[0].buffer.length as usize;
+        let payload_len = iov_descs[1].buffer.length as usize;
+        let trailer_len = iov_descs[3].buffer.length as usize;
 
-        // Extract header and trailer
-        let header = if header_len > 0 {
-            let header_slice = slice::from_raw_parts(
-                iov_descs[0].buffer.value as *const u8,
-                header_len,
-            );
-            Bytes::copy_from_slice(header_slice)
-        } else {
-            Bytes::new()
-        };
+        if header_len > header_buf.len()
+            || payload_len > data_buf.len()
+            || trailer_len > trailer_buf.len()
+        {
+            return Err(Error::Iov(
+                "IOV buffers too small for GSS output".into(),
+            ));
+        }
 
-        let trailer = if trailer_len > 0 {
-            let trailer_slice = slice::from_raw_parts(
-                iov_descs[3].buffer.value as *const u8,
-                trailer_len,
-            );
-            Bytes::copy_from_slice(trailer_slice)
-        } else {
-            Bytes::new()
-        };
+        header_buf.truncate(header_len);
+        data_buf.truncate(payload_len);
+        trailer_buf.truncate(trailer_len);
+
+        let header = Bytes::from(header_buf);
+        let payload = Bytes::from(data_buf);
+        let trailer = Bytes::from(trailer_buf);
 
         #[cfg(feature = "trace")]
         debug!(
@@ -152,12 +153,14 @@ pub fn wrap_iov_real(
             conf = (conf_state != 0),
             pdu_len = _pdu.len(),
             header_len = header.len(),
+            payload_len = payload.len(),
             trailer_len = trailer.len(),
             "wrap_iov completed"
         );
 
         Ok(IovWrap {
             header,
+            payload,
             trailer,
             conf: conf_state != 0,
         })
@@ -300,7 +303,7 @@ pub fn wrap_size_limit_real(
         let major_status = ffi::gss_wrap_size_limit(
             &mut minor_status,
             ctx_handle,
-            if _conf_req { 1 } else { 0 },
+            if conf_req { 1 } else { 0 },
             ffi::GSS_C_QOP_DEFAULT,
             max_wrapped as ffi::OM_uint32,
             &mut max_input_size,

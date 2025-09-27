@@ -1,6 +1,6 @@
 //! GSS-API integration for Unix platforms
 
-use crate::config::{AuthLevel, KerberosConfig};
+use crate::config::{AuthLevel, ChannelBindings, KerberosConfig};
 use crate::error::{Error, Result};
 use crate::security::IovWrap;
 use libgssapi::context::{ClientCtx, CtxFlags, SecurityContext};
@@ -15,6 +15,7 @@ use std::time::Duration;
 // - Allowing out-of-order message processing
 // - Preventing GSS replay cache from interfering with DCE/RPC
 const GSS_C_DCE_STYLE: u32 = 0x1000;
+const GSS_C_DELEG_FLAG: u32 = 0x01;
 
 #[cfg(feature = "trace")]
 use tracing::{debug, error, info, instrument, warn};
@@ -46,6 +47,11 @@ impl GssContext {
             config,
             established: false,
         })
+    }
+
+    /// Update channel bindings configuration after context creation
+    pub fn set_channel_bindings(&mut self, cb: Option<ChannelBindings>) {
+        self.config.channel_bindings = cb;
     }
 
     /// Generate initial AP-REQ token
@@ -96,8 +102,7 @@ impl GssContext {
         // Enable delegation if configured
         if self.config.enable_delegation {
             // GSS_C_DELEG_FLAG (0x01) - allows server to act on client's behalf
-            // This is already defined in ffi/mod.rs
-            let flags_with_deleg = flags.bits() | crate::ffi::GSS_C_DELEG_FLAG;
+            let flags_with_deleg = flags.bits() | GSS_C_DELEG_FLAG;
             flags = CtxFlags::from_bits_retain(flags_with_deleg);
 
             #[cfg(feature = "trace")]
@@ -128,15 +133,19 @@ impl GssContext {
         // Initialize context - API changed in libgssapi 0.9.1
         let mut ctx = ClientCtx::new(Some(cred), target, flags, Some(&GSS_MECH_KRB5));
 
-        // Apply channel bindings if configured
-        if let Some(ref _cb) = self.config.channel_bindings {
-            // TODO: Implement channel bindings when libgssapi supports it
-            #[cfg(feature = "trace")]
-            warn!(target: "kerbsec::gss", "channel bindings configured but not yet implemented");
+        let channel_binding_data = self
+            .config
+            .channel_bindings
+            .as_ref()
+            .and_then(|cb| cb.get_gss_data());
+
+        #[cfg(feature = "trace")]
+        if let Some(ref data) = channel_binding_data {
+            debug!(target: "kerbsec::gss", binding_len = data.len(), "applying channel bindings");
         }
 
         // Generate initial token (AP-REQ)
-        match ctx.step(None, None) {
+        match ctx.step(None, channel_binding_data.as_deref()) {
             Ok(Some(token)) => {
                 self.inner = Some(ctx);
                 Ok(token.to_vec())
@@ -156,7 +165,13 @@ impl GssContext {
     pub fn accept_ap_rep(&mut self, ap_rep: &[u8]) -> Result<Option<Vec<u8>>> {
         let ctx = self.inner.as_mut().ok_or(Error::NotEstablished)?;
 
-        match ctx.step(Some(ap_rep), None) {
+        let channel_binding_data = self
+            .config
+            .channel_bindings
+            .as_ref()
+            .and_then(|cb| cb.get_gss_data());
+
+        match ctx.step(Some(ap_rep), channel_binding_data.as_deref()) {
             Ok(token) => {
                 // Check if complete - is_complete() returns bool directly
                 if ctx.is_complete() {
@@ -215,6 +230,7 @@ impl GssContext {
                     // Trailer is empty since we can't separate without IOV
                     Ok(IovWrap {
                         header: Bytes::from(wrapped.to_vec()),
+                        payload: Bytes::new(),
                         trailer: Bytes::new(),
                         conf: conf_req,
                     })
