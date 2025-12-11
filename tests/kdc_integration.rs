@@ -154,7 +154,7 @@ mod context_tests {
             .realm(&config.realm)
             .target_host(&config.service_host)
             .default_auth(AuthLevel::Integrity)
-            .keytab(keytab_path.unwrap())
+            .keytab(Some(keytab_path.unwrap()))
             .build()
             .unwrap();
 
@@ -182,23 +182,23 @@ mod config_tests {
 
         // Test various SPN formats
         let spn_http =
-            kerbsec::ServiceClass::Http.to_spn(&config.service_host, Some(&config.realm));
+            kerbsec::ServiceClass::Http.spn_with_realm(&config.service_host, &config.realm);
         assert_eq!(
             spn_http,
             format!("HTTP/{}@{}", config.service_host, config.realm)
         );
 
         let spn_host =
-            kerbsec::ServiceClass::Host.to_spn(&config.service_host, Some(&config.realm));
+            kerbsec::ServiceClass::Host.spn_with_realm(&config.service_host, &config.realm);
         assert_eq!(
             spn_host,
             format!("HOST/{}@{}", config.service_host, config.realm)
         );
 
-        let spn_mssql = kerbsec::ServiceClass::MsSql.to_spn_with_port(
+        let spn_mssql = kerbsec::ServiceClass::MsSql.spn_full(
             &config.service_host,
             1433,
-            Some(&config.realm),
+            &config.realm,
         );
         assert_eq!(
             spn_mssql,
@@ -335,8 +335,6 @@ mod mock_tests {
 }
 
 mod error_tests {
-    use super::*;
-
     #[test]
     fn test_error_types_exist() {
         // Verify Windows AD specific error types are available
