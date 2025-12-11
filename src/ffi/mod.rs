@@ -142,6 +142,10 @@ pub const GSS_C_QOP_DEFAULT: gss_qop_t = 0;
 // External functions - IOV operations (Linux only)
 #[cfg(target_os = "linux")]
 extern "C" {
+    /// Wrap a message using IOV (Input/Output Vector) buffers
+    ///
+    /// This function provides zero-copy message protection by operating
+    /// directly on scatter-gather buffers.
     pub fn gss_wrap_iov(
         minor_status: *mut OM_uint32,
         context_handle: gss_ctx_id_t,
@@ -152,6 +156,10 @@ extern "C" {
         iov_count: c_int,
     ) -> OM_uint32;
 
+    /// Unwrap a message using IOV (Input/Output Vector) buffers
+    ///
+    /// This function provides zero-copy message verification by operating
+    /// directly on scatter-gather buffers.
     pub fn gss_unwrap_iov(
         minor_status: *mut OM_uint32,
         context_handle: gss_ctx_id_t,
@@ -161,6 +169,10 @@ extern "C" {
         iov_count: c_int,
     ) -> OM_uint32;
 
+    /// Calculate maximum input size for wrap operation
+    ///
+    /// Given a maximum output size, returns the maximum input size
+    /// that will not exceed the output limit when wrapped.
     pub fn gss_wrap_size_limit(
         minor_status: *mut OM_uint32,
         context_handle: gss_ctx_id_t,
@@ -200,7 +212,106 @@ extern "C" {
         minor_status: *mut OM_uint32,
         buffer: gss_buffer_t,
     ) -> OM_uint32;
+
+    /// Inquire about a security context
+    ///
+    /// This function obtains information about a security context.
+    /// Used to verify actual negotiated flags (delegation, mutual auth, etc.)
+    ///
+    /// # Parameters
+    /// - `minor_status`: Mechanism-specific status code (output)
+    /// - `context_handle`: The security context to query
+    /// - `src_name`: Source name (may be NULL)
+    /// - `targ_name`: Target name (may be NULL)
+    /// - `lifetime_rec`: Remaining lifetime in seconds (may be NULL)
+    /// - `mech_type`: Mechanism OID (may be NULL)
+    /// - `ctx_flags`: Negotiated context flags (output, may be NULL)
+    /// - `locally_initiated`: Whether context was initiated locally (may be NULL)
+    /// - `open`: Whether context is fully established (may be NULL)
+    pub fn gss_inquire_context(
+        minor_status: *mut OM_uint32,
+        context_handle: gss_ctx_id_t,
+        src_name: *mut gss_name_t,
+        targ_name: *mut gss_name_t,
+        lifetime_rec: *mut OM_uint32,
+        mech_type: *mut gss_OID,
+        ctx_flags: *mut OM_uint32,
+        locally_initiated: *mut c_int,
+        open: *mut c_int,
+    ) -> OM_uint32;
+
+    /// Release a GSS-API name
+    ///
+    /// # Parameters
+    /// - `minor_status`: Mechanism-specific status code
+    /// - `name`: Name to be released
+    pub fn gss_release_name(
+        minor_status: *mut OM_uint32,
+        name: *mut gss_name_t,
+    ) -> OM_uint32;
+
+    /// Export credentials for delegation
+    ///
+    /// # Parameters
+    /// - `minor_status`: Mechanism-specific status code
+    /// - `cred_handle`: Credential handle to export
+    /// - `cred_token`: Output buffer for exported credential
+    pub fn gss_export_cred(
+        minor_status: *mut OM_uint32,
+        cred_handle: gss_cred_id_t,
+        cred_token: gss_buffer_t,
+    ) -> OM_uint32;
+
+    /// Import credentials from exported token
+    ///
+    /// # Parameters
+    /// - `minor_status`: Mechanism-specific status code
+    /// - `cred_token`: Input buffer with exported credential
+    /// - `cred_handle`: Output credential handle
+    pub fn gss_import_cred(
+        minor_status: *mut OM_uint32,
+        cred_token: gss_buffer_t,
+        cred_handle: *mut gss_cred_id_t,
+    ) -> OM_uint32;
+
+    /// Acquire credentials from a keytab
+    ///
+    /// Note: This is a MIT Kerberos extension, not standard GSS-API.
+    /// Use `krb5_gss_register_acceptor_identity` or set `KRB5_KTNAME` env var.
+    pub fn gss_acquire_cred(
+        minor_status: *mut OM_uint32,
+        desired_name: gss_name_t,
+        time_req: OM_uint32,
+        desired_mechs: *mut gss_OID_set_desc,
+        cred_usage: c_int,
+        output_cred_handle: *mut gss_cred_id_t,
+        actual_mechs: *mut *mut gss_OID_set_desc,
+        time_rec: *mut OM_uint32,
+    ) -> OM_uint32;
+
+    /// Release a credential handle
+    pub fn gss_release_cred(
+        minor_status: *mut OM_uint32,
+        cred_handle: *mut gss_cred_id_t,
+    ) -> OM_uint32;
 }
+
+/// GSS-API OID set descriptor
+#[repr(C)]
+pub struct gss_OID_set_desc {
+    /// Number of OIDs in the set
+    pub count: size_t,
+    /// Pointer to array of OID descriptors
+    pub elements: gss_OID,
+}
+
+// Credential usage constants
+/// Credential can be used to initiate contexts
+pub const GSS_C_INITIATE: c_int = 1;
+/// Credential can be used to accept contexts
+pub const GSS_C_ACCEPT: c_int = 2;
+/// Credential can be used for both initiate and accept
+pub const GSS_C_BOTH: c_int = 0;
 
 /// Check if IOV operations are available on this platform
 ///
