@@ -129,10 +129,10 @@ jobs:
 
       - name: Start KDC container
         run: |
-          docker-compose -f testing/docker-compose.yml up -d
+          docker compose -f testing/docker-compose.yml up -d
           # Wait for KDC to be healthy
           for i in {1..30}; do
-            if docker-compose -f testing/docker-compose.yml exec -T kdc kadmin.local -q "listprincs" >/dev/null 2>&1; then
+            if docker compose -f testing/docker-compose.yml exec -T kdc kadmin.local -q "listprincs" >/dev/null 2>&1; then
               echo "KDC is ready!"
               break
             fi
@@ -165,11 +165,11 @@ jobs:
 
       - name: Show KDC logs on failure
         if: failure()
-        run: docker-compose -f testing/docker-compose.yml logs kdc
+        run: docker compose -f testing/docker-compose.yml logs kdc
 
       - name: Cleanup
         if: always()
-        run: docker-compose -f testing/docker-compose.yml down -v
+        run: docker compose -f testing/docker-compose.yml down -v
 
   # Security audit
   security-audit:

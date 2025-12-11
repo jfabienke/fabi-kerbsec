@@ -54,10 +54,10 @@ log_error() {
 cleanup() {
     if [ "$KEEP_RUNNING" = false ]; then
         log_info "Stopping test containers..."
-        docker-compose -f "$COMPOSE_FILE" down -v 2>/dev/null || true
+        docker compose -f "$COMPOSE_FILE" down -v 2>/dev/null || true
     else
         log_info "Keeping containers running (--keep-running specified)"
-        log_info "To stop: docker-compose -f $COMPOSE_FILE down -v"
+        log_info "To stop: docker compose -f $COMPOSE_FILE down -v"
     fi
 }
 
@@ -71,25 +71,25 @@ log_info "Compose: $COMPOSE_FILE"
 # Build images if needed
 if [ "$FORCE_BUILD" = true ]; then
     log_info "Building Docker images..."
-    docker-compose -f "$COMPOSE_FILE" build
+    docker compose -f "$COMPOSE_FILE" build
 fi
 
 # Start containers
 log_info "Starting KDC containers..."
-docker-compose -f "$COMPOSE_FILE" up -d
+docker compose -f "$COMPOSE_FILE" up -d
 
 if [ "$QUICK" = false ]; then
     # Wait for KDC to be healthy
     log_info "Waiting for KDC to be ready..."
     RETRIES=30
     while [ $RETRIES -gt 0 ]; do
-        if docker-compose -f "$COMPOSE_FILE" exec -T kdc kadmin.local -q "listprincs" >/dev/null 2>&1; then
+        if docker compose -f "$COMPOSE_FILE" exec -T kdc kadmin.local -q "listprincs" >/dev/null 2>&1; then
             break
         fi
         RETRIES=$((RETRIES - 1))
         if [ $RETRIES -eq 0 ]; then
             log_error "KDC failed to start!"
-            docker-compose -f "$COMPOSE_FILE" logs kdc
+            docker compose -f "$COMPOSE_FILE" logs kdc
             exit 1
         fi
         sleep 1
@@ -160,7 +160,7 @@ fi
 # Show container logs on failure
 if [ $EXIT_CODE -ne 0 ] && [ "$VERBOSE" = true ]; then
     log_info "KDC logs:"
-    docker-compose -f "$COMPOSE_FILE" logs kdc
+    docker compose -f "$COMPOSE_FILE" logs kdc
 fi
 
 exit $EXIT_CODE

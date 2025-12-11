@@ -3,9 +3,9 @@
 # This sets up a MIT Kerberos KDC for testing GSS-API operations.
 #
 # Usage:
-#   docker-compose -f testing/docker-compose.yml up -d
+#   docker compose -f testing/docker-compose.yml up -d
 #   cargo test --features integration-tests
-#   docker-compose -f testing/docker-compose.yml down
+#   docker compose -f testing/docker-compose.yml down
 #
 # Or use the test script:
 #   ./testing/scripts/run-integration-tests.sh
