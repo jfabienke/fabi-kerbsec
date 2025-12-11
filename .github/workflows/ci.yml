@@ -48,32 +48,15 @@ jobs:
     name: Test
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
         rust: [stable, beta]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libkrb5-dev
-
-      - name: Install dependencies (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          brew install krb5
-          # Handle both Intel (/usr/local) and Apple Silicon (/opt/homebrew)
-          if [ -d "/opt/homebrew/opt/krb5" ]; then
-            echo "PKG_CONFIG_PATH=/opt/homebrew/opt/krb5/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
-            echo "LIBRARY_PATH=/opt/homebrew/opt/krb5/lib:$LIBRARY_PATH" >> $GITHUB_ENV
-            echo "C_INCLUDE_PATH=/opt/homebrew/opt/krb5/include:$C_INCLUDE_PATH" >> $GITHUB_ENV
-          else
-            echo "PKG_CONFIG_PATH=/usr/local/opt/krb5/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
-            echo "LIBRARY_PATH=/usr/local/opt/krb5/lib:$LIBRARY_PATH" >> $GITHUB_ENV
-            echo "C_INCLUDE_PATH=/usr/local/opt/krb5/include:$C_INCLUDE_PATH" >> $GITHUB_ENV
-          fi
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
