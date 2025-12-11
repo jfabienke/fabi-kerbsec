@@ -127,10 +127,12 @@ pub const GSS_S_CONTINUE_NEEDED: OM_uint32 = 1;
 pub const GSS_C_GSS_CODE: c_int = 1;
 /// Mechanism-specific error code type
 pub const GSS_C_MECH_CODE: c_int = 2;
-/// Null OID value
-pub const GSS_C_NO_OID: gss_OID = 0 as gss_OID;
-/// Null buffer value
-pub const GSS_C_NO_BUFFER: gss_buffer_t = 0 as gss_buffer_t;
+/// Null OID value - represents `GSS_C_NO_OID` in GSS-API
+///
+/// Using `std::ptr::null_mut()` is the idiomatic way to create null pointers in Rust.
+pub const GSS_C_NO_OID: gss_OID = std::ptr::null_mut();
+/// Null buffer value - represents `GSS_C_NO_BUFFER` in GSS-API
+pub const GSS_C_NO_BUFFER: gss_buffer_t = std::ptr::null_mut();
 
 // QOP values
 

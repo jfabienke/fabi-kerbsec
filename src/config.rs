@@ -103,7 +103,7 @@ pub struct KerberosConfig {
     pub kccache: Option<String>,
     /// Optional channel bindings for enhanced security
     pub channel_bindings: Option<ChannelBindings>,
-    /// Enable GSS_C_DCE_STYLE flag for DCE/RPC compatibility
+    /// Enable `GSS_C_DCE_STYLE` flag for DCE/RPC compatibility
     ///
     /// When enabled, this flag:
     /// - Disables GSS sequence number checking (DCE has its own)
@@ -112,14 +112,14 @@ pub struct KerberosConfig {
     ///
     /// Default: true (recommended for DCE/RPC)
     pub enable_dce_style: bool,
-    /// Enable credential delegation (GSS_C_DELEG_FLAG)
+    /// Enable credential delegation (`GSS_C_DELEG_FLAG`)
     ///
     /// When enabled, allows the server to impersonate the client
     /// for accessing other services (S4U2Self/S4U2Proxy scenarios).
     ///
     /// Default: false (for security)
     pub enable_delegation: bool,
-    /// Require mutual authentication (GSS_C_MUTUAL_FLAG)
+    /// Require mutual authentication (`GSS_C_MUTUAL_FLAG`)
     ///
     /// Already enabled by default for security, but exposed
     /// for cases where you might need to disable it (not recommended).
@@ -233,7 +233,7 @@ impl KerberosConfigBuilder {
         self
     }
 
-    /// Enable or disable GSS_C_DCE_STYLE flag
+    /// Enable or disable `GSS_C_DCE_STYLE` flag
     ///
     /// When enabled (default), this flag:
     /// - Disables GSS sequence number checking (DCE has its own)
@@ -247,7 +247,7 @@ impl KerberosConfigBuilder {
         self
     }
 
-    /// Enable credential delegation (GSS_C_DELEG_FLAG)
+    /// Enable credential delegation (`GSS_C_DELEG_FLAG`)
     ///
     /// When enabled, allows the server to impersonate the client
     /// for accessing other services (S4U2Self/S4U2Proxy scenarios).
@@ -262,7 +262,7 @@ impl KerberosConfigBuilder {
         self
     }
 
-    /// Require mutual authentication (GSS_C_MUTUAL_FLAG)
+    /// Require mutual authentication (`GSS_C_MUTUAL_FLAG`)
     ///
     /// Enabled by default for security. Only disable if you have
     /// a specific reason and understand the security implications.
@@ -279,6 +279,7 @@ impl KerberosConfigBuilder {
     /// Returns an error if:
     /// - Required fields are missing
     /// - IP address target is used without SPN override
+    /// - SPN override has invalid format
     #[cfg_attr(feature = "trace", instrument(
         target = "kerbsec::config",
         level = "debug",
@@ -291,6 +292,11 @@ impl KerberosConfigBuilder {
         let target_fqdn = self
             .target_host
             .ok_or_else(|| Error::Config("target_host is required".into()))?;
+
+        // Validate SPN format if provided
+        if let Some(ref spn) = self.spn_override {
+            validate_spn(spn)?;
+        }
 
         // Check if target is IP and requires override
         if target_fqdn.parse::<std::net::IpAddr>().is_ok() && self.spn_override.is_none() {
@@ -334,6 +340,7 @@ impl KerberosConfigBuilder {
     /// Returns an error if:
     /// - Required fields are missing
     /// - IP address target is used without SPN override
+    /// - SPN override has invalid format
     /// - DNS canonicalization fails
     #[cfg(feature = "dns")]
     #[cfg_attr(feature = "trace", instrument(
@@ -350,6 +357,11 @@ impl KerberosConfigBuilder {
         let target_host = self
             .target_host
             .ok_or_else(|| Error::Config("target_host is required".into()))?;
+
+        // Validate SPN format if provided
+        if let Some(ref spn) = self.spn_override {
+            validate_spn(spn)?;
+        }
 
         // Canonicalize via DNS (CNAME → A/AAAA)
         let target_fqdn = canonicalize_fqdn(&target_host, self.dns_timeout).await?;
@@ -388,5 +400,95 @@ impl KerberosConfigBuilder {
         );
 
         Ok(config)
+    }
+}
+
+/// Validate SPN (Service Principal Name) format
+///
+/// SPNs must follow the format: `service/hostname[@REALM]`
+///
+/// # Valid Examples
+/// - `HOST/server.example.com`
+/// - `HTTP/web.example.com`
+/// - `MSSQLSvc/sql.example.com:1433`
+/// - `cifs/fileserver.example.com@EXAMPLE.COM`
+///
+/// # Invalid Examples
+/// - `""` (empty)
+/// - `invalid` (missing slash)
+/// - `/hostname` (missing service)
+/// - `SERVICE/` (missing hostname)
+fn validate_spn(spn: &str) -> Result<()> {
+    if spn.is_empty() {
+        return Err(Error::Config("SPN cannot be empty".into()));
+    }
+
+    // Remove optional realm suffix for validation
+    let spn_without_realm = if let Some(at_pos) = spn.rfind('@') {
+        // Ensure realm is not empty
+        if at_pos + 1 >= spn.len() {
+            return Err(Error::Config("SPN realm cannot be empty after '@'".into()));
+        }
+        &spn[..at_pos]
+    } else {
+        spn
+    };
+
+    // Check for service/hostname format
+    let slash_pos = spn_without_realm
+        .find('/')
+        .ok_or_else(|| Error::Config("SPN must contain '/' separator (format: service/hostname)".into()))?;
+
+    // Service part must not be empty
+    if slash_pos == 0 {
+        return Err(Error::Config("SPN service part cannot be empty (before '/')".into()));
+    }
+
+    // Hostname part must not be empty
+    let hostname = &spn_without_realm[slash_pos + 1..];
+    if hostname.is_empty() {
+        return Err(Error::Config("SPN hostname part cannot be empty (after '/')".into()));
+    }
+
+    // Check for double slashes
+    if spn_without_realm.contains("//") {
+        return Err(Error::Config("SPN cannot contain '//' (double slash)".into()));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_spns() {
+        assert!(validate_spn("HOST/server.example.com").is_ok());
+        assert!(validate_spn("HTTP/web.example.com").is_ok());
+        assert!(validate_spn("MSSQLSvc/sql.example.com:1433").is_ok());
+        assert!(validate_spn("cifs/fileserver.example.com@EXAMPLE.COM").is_ok());
+        assert!(validate_spn("service/host").is_ok());
+    }
+
+    #[test]
+    fn test_invalid_spns() {
+        // Empty SPN
+        assert!(validate_spn("").is_err());
+
+        // Missing slash
+        assert!(validate_spn("invalid").is_err());
+
+        // Missing service
+        assert!(validate_spn("/hostname").is_err());
+
+        // Missing hostname
+        assert!(validate_spn("SERVICE/").is_err());
+
+        // Double slash
+        assert!(validate_spn("SERVICE//hostname").is_err());
+
+        // Empty realm
+        assert!(validate_spn("SERVICE/hostname@").is_err());
     }
 }

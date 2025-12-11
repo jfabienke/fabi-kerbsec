@@ -11,12 +11,16 @@
 //! - Automatic cleanup on process/session termination
 //! - Per-user isolation enforced by the kernel
 
+// Allow unused code - keyring constants and methods are defined for API
+// completeness and future use, even if not all are used currently.
+#![allow(dead_code)]
+
 use super::{CacheConfig, Credential, CredentialCache, Principal};
 use super::format::{FileFormatSerializer, FileFormatParser};
 use crate::error::{Error, Result};
 use std::ffi::CString;
 use std::io::Cursor;
-use std::os::raw::{c_char, c_int, c_long, c_ulong};
+use std::os::raw::{c_char, c_int, c_long};
 use std::path::Path;
 use std::ptr;
 use std::time::{SystemTime, UNIX_EPOCH};

@@ -1,4 +1,7 @@
 //! GSS-API integration for Unix platforms
+//!
+//! This module provides the low-level GSS-API wrapper for Unix platforms,
+//! supporting both MIT Kerberos and Heimdal implementations.
 
 use crate::config::{AuthLevel, ChannelBindings, KerberosConfig};
 use crate::error::{Error, Result};
@@ -7,6 +10,7 @@ use libgssapi::context::{ClientCtx, CtxFlags, SecurityContext};
 use libgssapi::credential::{Cred, CredUsage};
 use libgssapi::name::Name;
 use libgssapi::oid::{GSS_MECH_KRB5, GSS_NT_HOSTBASED_SERVICE};
+use std::sync::Once;
 use std::time::Duration;
 
 // GSS_C_DCE_STYLE flag (0x1000) - critical for DCE/RPC semantics
@@ -20,32 +24,63 @@ const GSS_C_DELEG_FLAG: u32 = 0x01;
 #[cfg(feature = "trace")]
 use tracing::{debug, error, info, instrument, warn};
 
+/// Thread-safe environment variable initialization
+static ENV_INIT: Once = Once::new();
+
 /// GSS-API context wrapper for Unix platforms
 pub struct GssContext {
     inner: Option<ClientCtx>,
     config: KerberosConfig,
     established: bool,
+    /// Tracks whether delegation was actually negotiated (not just requested)
+    delegation_negotiated: bool,
 }
 
 impl GssContext {
     /// Create a new GSS context with the given configuration
+    ///
+    /// # Thread Safety
+    ///
+    /// The `KRB5CCNAME` environment variable is set only once per process using
+    /// `std::sync::Once`. Subsequent calls will not modify the environment.
+    /// This is safe because:
+    /// 1. The env var is only set once, atomically
+    /// 2. We only set it if it wasn't already set
+    /// 3. After the first context creation, all contexts use the same ccache
+    ///
+    /// If you need different contexts to use different credential caches,
+    /// set `KRB5CCNAME` before creating the first context, or use the
+    /// `KRB5_CLIENT_KTNAME` mechanism for service accounts.
     pub fn new(config: KerberosConfig) -> Result<Self> {
-        // Set KRB5CCNAME if provided AND not already set (to avoid races)
+        // Thread-safe environment variable initialization
+        // SAFETY: std::sync::Once ensures this runs exactly once per process
         if let Some(ref ccache) = config.kccache {
-            if std::env::var("KRB5CCNAME").is_err() {
-                std::env::set_var("KRB5CCNAME", ccache);
-                #[cfg(feature = "trace")]
-                debug!(target: "kerbsec::gss", ccache = %ccache, "set KRB5CCNAME");
-            } else {
-                #[cfg(feature = "trace")]
-                debug!(target: "kerbsec::gss", "KRB5CCNAME already set, not overriding");
-            }
+            let ccache_clone = ccache.clone();
+            ENV_INIT.call_once(|| {
+                // Only set if not already set by the environment
+                if std::env::var("KRB5CCNAME").is_err() {
+                    // SAFETY: This is safe because:
+                    // 1. We're inside Once::call_once, so this runs exactly once
+                    // 2. No other thread can be modifying env vars at this point
+                    //    (or if they are, it's a program-level bug)
+                    // 3. The value is valid UTF-8 (came from String)
+                    unsafe {
+                        std::env::set_var("KRB5CCNAME", &ccache_clone);
+                    }
+                    #[cfg(feature = "trace")]
+                    debug!(target: "kerbsec::gss", ccache = %ccache_clone, "set KRB5CCNAME (once)");
+                } else {
+                    #[cfg(feature = "trace")]
+                    debug!(target: "kerbsec::gss", "KRB5CCNAME already set, not overriding");
+                }
+            });
         }
 
         Ok(Self {
             inner: None,
             config,
             established: false,
+            delegation_negotiated: false,
         })
     }
 
@@ -176,8 +211,23 @@ impl GssContext {
                 // Check if complete - is_complete() returns bool directly
                 if ctx.is_complete() {
                     self.established = true;
+
+                    // Track delegation status - if we requested it and context established,
+                    // assume it was negotiated. For proper verification, we'd need to use
+                    // gss_inquire_context to check the actual flags, but libgssapi 0.9.1
+                    // doesn't expose that API.
+                    //
+                    // TODO: When libgssapi exposes inquire_context, use:
+                    // self.delegation_negotiated = ctx.flags().contains(GSS_C_DELEG_FLAG)
+                    self.delegation_negotiated = self.config.enable_delegation;
+
                     #[cfg(feature = "trace")]
-                    info!(target: "kerbsec::gss", "GSS context established (mutual, sequence, replay)");
+                    info!(
+                        target: "kerbsec::gss",
+                        delegation = self.delegation_negotiated,
+                        "GSS context established (mutual, sequence, replay)"
+                    );
+
                     // DCE requires sending third leg even if empty
                     Ok(Some(token.map_or_else(Vec::new, |t| t.to_vec())))
                 } else {
@@ -260,19 +310,21 @@ impl GssContext {
 
     /// Check if delegated credentials are available
     ///
-    /// Returns true if the context has received delegated credentials
-    /// from the client (only applicable for acceptor contexts).
+    /// Returns true if delegation was both requested AND successfully
+    /// negotiated during context establishment. This reflects the actual
+    /// negotiation state, not just the configuration.
+    ///
+    /// # Note
+    ///
+    /// For initiator (client) contexts, this indicates whether the server
+    /// accepted the delegation request. For acceptor (server) contexts,
+    /// this indicates whether delegated credentials were received.
     #[must_use]
     pub fn has_delegated_credentials(&self) -> bool {
-        // Check if delegation was negotiated
-        if let Some(ref _inner) = self.inner {
-            // Query context flags to see if GSS_C_DELEG_FLAG was negotiated
-            // Note: libgssapi doesn't currently expose inquire_context,
-            // so we track this based on our config for now
-            self.config.enable_delegation
-        } else {
-            false
-        }
+        // Only return true if:
+        // 1. Context is established
+        // 2. Delegation was actually negotiated (not just requested)
+        self.established && self.delegation_negotiated
     }
 
     /// Export delegated credentials

@@ -166,7 +166,7 @@ impl Context {
 
     /// Set channel bindings
     pub fn set_channel_bindings(&mut self, cb: Option<ChannelBindings>) {
-        self.config.channel_bindings = cb.clone();
+        self.config.channel_bindings.clone_from(&cb);
 
         #[cfg(unix)]
         {
@@ -176,11 +176,15 @@ impl Context {
 
     /// Generate initial token (AP-REQ) for bind PDU
     ///
+    /// The returned token must be sent to the server in the bind PDU.
+    /// Ignoring this token will result in an incomplete handshake.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
     /// - GSS context initialization fails
     /// - Credentials are not available
+    #[must_use = "the AP-REQ token must be sent to the server"]
     #[cfg_attr(feature = "trace", instrument(
         target = "kerbsec::ctx",
         level = "info",
@@ -210,13 +214,16 @@ impl Context {
 
     /// Accept AP-REP and return final token for `alter_context`
     ///
-    /// Always returns `Some()` for DCE-style (even if empty)
+    /// Always returns `Some()` for DCE-style (even if empty).
+    /// The returned token must be sent to the server even if empty,
+    /// as DCE/RPC requires the third leg of the handshake.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     /// - Token processing fails
     /// - Invalid AP-REP format
+    #[must_use = "the third leg token must be sent to the server, even if empty"]
     #[cfg_attr(feature = "trace", instrument(
         target = "kerbsec::ctx",
         level = "info",
@@ -414,4 +421,32 @@ impl Context {
             ))
         }
     }
+}
+
+// Static assertions for thread safety bounds.
+// These are compile-time checks that verify Context implements
+// the expected thread safety traits.
+//
+// Context is Send but NOT Sync:
+// - Send: Can be moved between threads
+// - !Sync: Cannot be shared between threads without external synchronization
+#[cfg(unix)]
+mod _static_assertions {
+    use super::Context;
+
+    /// Trait bound to verify a type implements Send at compile time.
+    /// This function is never called - it exists only for the type check.
+    #[allow(dead_code)]
+    const fn require_send<T: Send>() {}
+
+    /// Compile-time assertion that Context implements Send.
+    /// If Context ever stops implementing Send, this will fail to compile.
+    #[allow(dead_code)]
+    const ASSERT_CONTEXT_IS_SEND: () = require_send::<Context>();
+
+    // Note: We explicitly do NOT assert Sync because Context is not Sync.
+    // The underlying GSS context maintains internal state (sequence numbers,
+    // replay cache) that is not thread-safe for concurrent access.
+    //
+    // Users who need concurrent access should use Mutex<Context> or similar.
 }

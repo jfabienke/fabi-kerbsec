@@ -38,10 +38,10 @@ mod tests {
         );
     }
 
-    /// Test that SPN override validation works
+    /// Test that SPN override validation rejects invalid formats
     #[test]
     fn test_invalid_spn_format() {
-        // Test various invalid SPN formats
+        // Test various invalid SPN formats - these should be rejected at build time
         let invalid_spns = vec![
             "",                  // Empty SPN
             "invalid",           // Missing service/host separator
@@ -58,10 +58,35 @@ mod tests {
                 .spn_override(Some(invalid_spn.to_string()))
                 .build();
 
-            // Config accepts any string, but GSS-API would reject these
-            assert!(config.is_ok());
-            let cfg = config.unwrap();
-            assert_eq!(cfg.spn_override, Some(invalid_spn.to_string()));
+            // SPN validation should reject invalid formats early
+            assert!(
+                config.is_err(),
+                "Expected error for invalid SPN '{}', but got Ok",
+                invalid_spn
+            );
+        }
+
+        // Test that valid SPNs are accepted
+        let valid_spns = vec![
+            "HOST/server.example.com",
+            "HTTP/web.example.com",
+            "service/host",
+            "MSSQLSvc/sql.example.com:1433",
+        ];
+
+        for valid_spn in valid_spns {
+            let config = KerberosConfig::builder()
+                .realm("TEST.REALM")
+                .target_host("host")
+                .spn_override(Some(valid_spn.to_string()))
+                .build();
+
+            assert!(
+                config.is_ok(),
+                "Expected Ok for valid SPN '{}', but got error: {:?}",
+                valid_spn,
+                config.err()
+            );
         }
     }
 
