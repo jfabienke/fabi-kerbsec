@@ -112,6 +112,7 @@ impl ChannelBindings {
     /// Convert to GSS-API channel bindings structure
     /// Returns (`initiator_addr`, `acceptor_addr`, `application_data`)
     #[must_use]
+    #[allow(clippy::type_complexity)]
     pub fn to_gss_bindings(&self) -> (Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>) {
         let initiator = self.initiator_addr.map(|addr| {
             // Format: address type (2 bytes) + address data

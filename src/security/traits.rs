@@ -192,11 +192,13 @@ impl Default for MockContextConfig {
 #[cfg(any(test, feature = "mock"))]
 impl MockSecurityContext {
     /// Create a new mock context with default configuration
+    #[must_use]
     pub fn new() -> Self {
         Self::with_config(MockContextConfig::default())
     }
 
     /// Create a mock context with custom configuration
+    #[must_use]
     pub fn with_config(config: MockContextConfig) -> Self {
         Self {
             config,
@@ -206,7 +208,8 @@ impl MockSecurityContext {
     }
 
     /// Get the number of times each method was called
-    pub fn call_counts(&self) -> (usize, usize, usize, usize) {
+    #[must_use]
+    pub const fn call_counts(&self) -> (usize, usize, usize, usize) {
         (
             self.call_count.initial_token,
             self.call_count.accept_response,
@@ -320,27 +323,22 @@ impl SecurityContext for MockSecurityContext {
             });
         }
 
+        // Extract payload from header and trailer
+        let header_len = self.config.wrap_header.len();
+        let trailer_len = self.config.wrap_trailer.len();
+
+        if token.len() < header_len + trailer_len {
+            return Err(crate::error::Error::TokenShape);
+        }
+
+        let payload = &token[header_len..token.len() - trailer_len];
+
         if self.config.wrap_passthrough {
-            // In passthrough mode, strip header/trailer and return payload
-            let header_len = self.config.wrap_header.len();
-            let trailer_len = self.config.wrap_trailer.len();
-
-            if token.len() < header_len + trailer_len {
-                return Err(crate::error::Error::TokenShape);
-            }
-
-            Ok(token[header_len..token.len() - trailer_len].to_vec())
+            // In passthrough mode, return payload unchanged
+            Ok(payload.to_vec())
         } else {
             // Simulate decryption by XORing with 0x42
-            let header_len = self.config.wrap_header.len();
-            let trailer_len = self.config.wrap_trailer.len();
-
-            if token.len() < header_len + trailer_len {
-                return Err(crate::error::Error::TokenShape);
-            }
-
-            let encrypted = &token[header_len..token.len() - trailer_len];
-            Ok(encrypted.iter().map(|b| b ^ 0x42).collect())
+            Ok(payload.iter().map(|b| b ^ 0x42).collect())
         }
     }
 
@@ -366,6 +364,7 @@ pub struct MockContextBuilder {
 #[cfg(any(test, feature = "mock"))]
 impl MockContextBuilder {
     /// Create a new builder with default configuration
+    #[must_use]
     pub fn new() -> Self {
         Self {
             config: MockContextConfig::default(),
@@ -373,12 +372,14 @@ impl MockContextBuilder {
     }
 
     /// Configure for successful handshake
-    pub fn with_successful_handshake(mut self) -> Self {
+    #[must_use]
+    pub const fn with_successful_handshake(mut self) -> Self {
         self.config.handshake_succeeds = true;
         self
     }
 
     /// Configure for failed handshake
+    #[must_use]
     pub fn with_failed_handshake(mut self, error: &str) -> Self {
         self.config.handshake_succeeds = false;
         self.config.handshake_error = Some(error.to_string());
@@ -386,42 +387,49 @@ impl MockContextBuilder {
     }
 
     /// Enable delegation
-    pub fn with_delegation(mut self) -> Self {
+    #[must_use]
+    pub const fn with_delegation(mut self) -> Self {
         self.config.delegation_available = true;
         self
     }
 
     /// Set custom initial token
+    #[must_use]
     pub fn with_initial_token(mut self, token: Vec<u8>) -> Self {
         self.config.initial_token = token;
         self
     }
 
     /// Set custom session key
+    #[must_use]
     pub fn with_session_key(mut self, key: Vec<u8>) -> Self {
         self.config.session_key = Some(key);
         self
     }
 
     /// Configure wrap to simulate encryption
-    pub fn with_encryption_simulation(mut self) -> Self {
+    #[must_use]
+    pub const fn with_encryption_simulation(mut self) -> Self {
         self.config.wrap_passthrough = false;
         self
     }
 
     /// Configure wrap to fail
+    #[must_use]
     pub fn with_wrap_failure(mut self, error: &str) -> Self {
         self.config.wrap_error = Some(error.to_string());
         self
     }
 
     /// Configure unwrap to fail
+    #[must_use]
     pub fn with_unwrap_failure(mut self, error: &str) -> Self {
         self.config.unwrap_error = Some(error.to_string());
         self
     }
 
     /// Build the mock context
+    #[must_use]
     pub fn build(self) -> MockSecurityContext {
         MockSecurityContext::with_config(self.config)
     }
@@ -443,6 +451,7 @@ pub struct MockSecurityContextFactory {
 #[cfg(any(test, feature = "mock"))]
 impl MockSecurityContextFactory {
     /// Create a new mock factory with default configuration
+    #[must_use]
     pub fn new() -> Self {
         Self {
             config: MockContextConfig::default(),
@@ -450,7 +459,8 @@ impl MockSecurityContextFactory {
     }
 
     /// Create with custom configuration
-    pub fn with_config(config: MockContextConfig) -> Self {
+    #[must_use]
+    pub const fn with_config(config: MockContextConfig) -> Self {
         Self { config }
     }
 }

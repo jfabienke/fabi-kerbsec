@@ -195,11 +195,8 @@ mod config_tests {
             format!("HOST/{}@{}", config.service_host, config.realm)
         );
 
-        let spn_mssql = kerbsec::ServiceClass::MsSql.spn_full(
-            &config.service_host,
-            1433,
-            &config.realm,
-        );
+        let spn_mssql =
+            kerbsec::ServiceClass::MsSql.spn_full(&config.service_host, 1433, &config.realm);
         assert_eq!(
             spn_mssql,
             format!("MSSQLSvc/{}:1433@{}", config.service_host, config.realm)

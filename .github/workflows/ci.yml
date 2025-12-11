@@ -64,7 +64,7 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           brew install krb5
-          echo "PKG_CONFIG_PATH=/usr/local/opt/krb5/lib/pkgconfig:\$PKG_CONFIG_PATH" >> \$GITHUB_ENV
+          echo "PKG_CONFIG_PATH=/usr/local/opt/krb5/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master

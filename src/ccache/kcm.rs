@@ -79,7 +79,7 @@ impl From<u32> for KcmStatus {
             9 => Self::BadCreds,
             10 => Self::CredentialsMissing,
             11 => Self::BadCache,
-            12 | _ => Self::ServerError,
+            _ => Self::ServerError,
         }
     }
 }
@@ -232,7 +232,7 @@ impl CredentialCache for KcmCache {
         // Strip KCM: prefix if present
         let cache_name = cache_name
             .strip_prefix("KCM:")
-            .map_or(cache_name.clone(), str::to_string);
+            .map_or_else(|| cache_name.clone(), str::to_string);
 
         self.cache_name = Some(cache_name);
         Ok(())

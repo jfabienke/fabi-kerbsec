@@ -142,6 +142,19 @@ pub const GSS_C_QOP_DEFAULT: gss_qop_t = 0;
 // External functions - IOV operations (Linux only)
 #[cfg(target_os = "linux")]
 extern "C" {
+    /// Wrap (sign/encrypt) message data using IOV buffers
+    ///
+    /// This function performs message protection using scatter-gather IOV buffers,
+    /// allowing separate header, data, and trailer sections for DCE/RPC framing.
+    ///
+    /// # Parameters
+    /// - `minor_status`: Output for mechanism-specific status code
+    /// - `context_handle`: Established security context
+    /// - `conf_req_flag`: Non-zero to request confidentiality (encryption)
+    /// - `qop_req`: Quality of protection (use `GSS_C_QOP_DEFAULT`)
+    /// - `conf_state`: Output indicating if confidentiality was applied
+    /// - `iov`: Array of IOV buffer descriptors
+    /// - `iov_count`: Number of IOV buffers
     pub fn gss_wrap_iov(
         minor_status: *mut OM_uint32,
         context_handle: gss_ctx_id_t,
@@ -152,6 +165,18 @@ extern "C" {
         iov_count: c_int,
     ) -> OM_uint32;
 
+    /// Unwrap (verify/decrypt) message data using IOV buffers
+    ///
+    /// This function verifies and/or decrypts message data that was protected
+    /// using `gss_wrap_iov`.
+    ///
+    /// # Parameters
+    /// - `minor_status`: Output for mechanism-specific status code
+    /// - `context_handle`: Established security context
+    /// - `conf_state`: Output indicating if confidentiality was applied
+    /// - `qop_state`: Output for quality of protection used
+    /// - `iov`: Array of IOV buffer descriptors
+    /// - `iov_count`: Number of IOV buffers
     pub fn gss_unwrap_iov(
         minor_status: *mut OM_uint32,
         context_handle: gss_ctx_id_t,
@@ -161,6 +186,18 @@ extern "C" {
         iov_count: c_int,
     ) -> OM_uint32;
 
+    /// Query the maximum message size for wrapped output
+    ///
+    /// Returns the maximum input message size that will fit in the requested
+    /// output size after wrapping.
+    ///
+    /// # Parameters
+    /// - `minor_status`: Output for mechanism-specific status code
+    /// - `context_handle`: Established security context
+    /// - `conf_req_flag`: Non-zero to request confidentiality
+    /// - `qop_req`: Quality of protection
+    /// - `req_output_size`: Desired maximum output size
+    /// - `max_input_size`: Output for maximum input size
     pub fn gss_wrap_size_limit(
         minor_status: *mut OM_uint32,
         context_handle: gss_ctx_id_t,
