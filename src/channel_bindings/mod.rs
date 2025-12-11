@@ -111,7 +111,6 @@ impl ChannelBindings {
 
     /// Convert to GSS-API channel bindings structure
     /// Returns (`initiator_addr`, `acceptor_addr`, `application_data`)
-    #[allow(clippy::type_complexity)] // Intentional tuple return for GSS-API structure
     #[must_use]
     pub fn to_gss_bindings(&self) -> (Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>) {
         let initiator = self.initiator_addr.map(|addr| {

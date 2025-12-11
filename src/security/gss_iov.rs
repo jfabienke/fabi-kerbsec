@@ -76,7 +76,7 @@ unsafe fn get_raw_ctx_handle(ctx: &ClientCtx) -> ffi::gss_ctx_id_t {
     // to gss_ctx_id_t. This works because:
     // - gss_ctx_id_t is a pointer type (no alignment issues)
     // - It's the first field (offset 0)
-    let ctx_ptr = ptr::from_ref(ctx).cast::<ffi::gss_ctx_id_t>();
+    let ctx_ptr = ctx as *const ClientCtx as *const ffi::gss_ctx_id_t;
     let handle = ptr::read(ctx_ptr);
 
     // Validate that we got a non-null handle
@@ -125,7 +125,7 @@ pub fn wrap_iov_real(ctx: &mut ClientCtx, pdu: &[u8], conf_req: bool) -> Result<
 /// Native IOV wrap implementation for Linux
 #[cfg(target_os = "linux")]
 fn wrap_iov_native(ctx: &mut ClientCtx, pdu: &[u8], conf_req: bool) -> Result<IovWrap> {
-    use buffer_sizes::{MAX_HEADER_SIZE, MAX_PADDING_SIZE, MAX_TRAILER_SIZE};
+    use buffer_sizes::*;
 
     // SAFETY: We verify the context handle is non-null in get_raw_ctx_handle
     let ctx_handle = unsafe { get_raw_ctx_handle(ctx) };
@@ -545,7 +545,7 @@ fn display_gss_status(major: ffi::OM_uint32, minor: ffi::OM_uint32) -> String {
     }
 
     if messages.is_empty() {
-        format!("GSS error {major:#x}/{minor:#x}")
+        format!("GSS error {:#x}/{:#x}", major, minor)
     } else {
         messages.join(": ")
     }

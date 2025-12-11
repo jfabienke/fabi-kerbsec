@@ -1,0 +1,23 @@
+# Kerberos client container for integration testing
+#
+# This container can be used to:
+# 1. Obtain tickets (kinit) and verify they work
+# 2. Act as a service host for acceptor tests
+# 3. Debug Kerberos issues
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        krb5-user \
+        libkrb5-dev \
+        dnsutils \
+        netcat-openbsd \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV KRB5_REALM=TEST.KERBSEC.LOCAL
+ENV KRB5_KDC=kdc.test.kerbsec.local
+
+# Keep container running
+CMD ["sleep", "infinity"]

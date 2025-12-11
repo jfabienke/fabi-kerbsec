@@ -24,6 +24,10 @@ windows-sspi = []  # Reserved for future use
 trace = ["dep:tracing", "dep:tracing-subscriber"]
 allow-weak-crypto = []  # Enable RC4 and other weak ciphers (NOT RECOMMENDED)
 
+# Testing features
+mock = []  # Enable mock GSS-API implementations for unit testing
+integration-tests = ["mock", "trace"]  # Enable tests against real KDC
+
 [dependencies]
 thiserror = "2"
 anyhow = "1.0"

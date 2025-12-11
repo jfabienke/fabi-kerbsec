@@ -106,3 +106,80 @@ jobs:
         env:
           RUST_LOG: kerbsec::ctx=info,kerbsec::gss=debug,kerbsec::iov=trace
         run: cargo run --example wmi_client --features trace,dns,runtime --no-default-features || true
+
+  # Integration tests with containerized MIT KDC
+  integration-tests:
+    name: Integration Tests (KDC)
+    runs-on: ubuntu-latest
+    needs: [clippy, test]  # Only run after lint and unit tests pass
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Kerberos dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libkrb5-dev krb5-user
+
+      - name: Build KDC Docker image
+        run: docker build -t kerbsec-test-kdc:latest testing/kdc/
+
+      - name: Start KDC container
+        run: |
+          docker-compose -f testing/docker-compose.yml up -d
+          # Wait for KDC to be healthy
+          for i in {1..30}; do
+            if docker-compose -f testing/docker-compose.yml exec -T kdc kadmin.local -q "listprincs" >/dev/null 2>&1; then
+              echo "KDC is ready!"
+              break
+            fi
+            echo "Waiting for KDC... ($i/30)"
+            sleep 2
+          done
+
+      - name: Setup test environment
+        run: |
+          mkdir -p target/test-artifacts
+          # Copy keytabs from container
+          docker cp kerbsec-test-kdc:/keytabs/testuser.keytab target/test-artifacts/ || true
+          docker cp kerbsec-test-kdc:/keytabs/service.keytab target/test-artifacts/ || true
+          # Setup krb5.conf for localhost
+          cp testing/kdc/krb5.conf target/test-artifacts/krb5.conf
+          sed -i 's/kdc.test.kerbsec.local:88/127.0.0.1:8888/g' target/test-artifacts/krb5.conf
+          sed -i 's/kdc.test.kerbsec.local:749/127.0.0.1:8749/g' target/test-artifacts/krb5.conf
+
+      - name: Run integration tests
+        env:
+          KRB5_CONFIG: target/test-artifacts/krb5.conf
+          KRB5_CLIENT_KTNAME: target/test-artifacts/testuser.keytab
+          KRB5_KTNAME: target/test-artifacts/service.keytab
+          KERBSEC_TEST_REALM: TEST.KERBSEC.LOCAL
+          KERBSEC_TEST_USER: testuser
+          KERBSEC_TEST_PASSWORD: user123
+          KERBSEC_TEST_SERVICE_HOST: service.test.kerbsec.local
+          RUST_LOG: kerbsec=debug
+        run: cargo test --features integration-tests -- --test-threads=1
+
+      - name: Show KDC logs on failure
+        if: failure()
+        run: docker-compose -f testing/docker-compose.yml logs kdc
+
+      - name: Cleanup
+        if: always()
+        run: docker-compose -f testing/docker-compose.yml down -v
+
+  # Security audit
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run audit
+        run: cargo audit

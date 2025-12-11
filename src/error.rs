@@ -74,6 +74,10 @@ pub enum Error {
     #[error("Not implemented: {0}")]
     NotImplemented(String),
 
+    /// Protocol state errors (e.g., wrong handshake state)
+    #[error("Protocol error: {0}")]
+    Protocol(String),
+
     // =========================================================================
     // Windows AD specific errors
     // =========================================================================
