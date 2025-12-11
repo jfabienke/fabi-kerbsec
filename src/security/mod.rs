@@ -41,7 +41,8 @@ pub struct Oid {
 
 impl Oid {
     /// Create a new OID with dotted notation and DER encoding
-    #[must_use] pub const fn new(dotted: &'static str, der: &'static [u8]) -> Self {
+    #[must_use]
+    pub const fn new(dotted: &'static str, der: &'static [u8]) -> Self {
         Self { dotted, der }
     }
 

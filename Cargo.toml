@@ -76,7 +76,30 @@ missing_docs = "warn"
 pkg-config = "0.3"
 
 [lints.clippy]
-all = "warn"
-pedantic = "warn"
-nursery = "warn"
-cargo = "warn"
+# Lint groups with explicit priority (higher = evaluated later)
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+
+# Allow specific lints that are acceptable in this codebase
+# Multiple crate versions - caused by transitive dependencies we can't control
+multiple_crate_versions = "allow"
+# Missing errors doc for internal/parse functions - would be overly verbose
+missing_errors_doc = "allow"
+# Missing panics doc - we don't document intentional panics for internal functions
+missing_panics_doc = "allow"
+# Cast truncation is intentional in protocol code where sizes are bounded
+cast_possible_truncation = "allow"
+# Sign loss is intentional in timestamp handling
+cast_sign_loss = "allow"
+# Cast wrap is intentional in FFI code where we control the bounds
+cast_possible_wrap = "allow"
+# Allow map_or with function calls - often cleaner than alternatives
+option_if_let_else = "allow"
+# Allow significant drop temporaries - often unavoidable with RAII types
+significant_drop_tightening = "allow"
+# Allow borrow_as_ptr in FFI code - &mut x as ptr is idiomatic for FFI
+borrow_as_ptr = "allow"
+# Allow unused self in trait implementations
+unused_self = "allow"

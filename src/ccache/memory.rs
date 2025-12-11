@@ -113,9 +113,7 @@ impl CredentialCache for MemoryCache {
         })?;
 
         // Find the credential and check if it's not expired
-        Ok(creds.get(spn)
-            .filter(|c| !Self::is_expired(c))
-            .cloned())
+        Ok(creds.get(spn).filter(|c| !Self::is_expired(c)).cloned())
     }
 
     fn remove_ticket(&mut self, spn: &str) -> Result<()> {
@@ -151,7 +149,7 @@ impl CredentialCache for MemoryCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ccache::format::{NameType, Times, KeyBlock};
+    use crate::ccache::format::{KeyBlock, NameType, Times};
 
     fn create_test_credential(server_name: &str, expired: bool) -> Credential {
         let now = SystemTime::now()
@@ -225,8 +223,14 @@ mod tests {
         cache.store_ticket(expired).unwrap();
 
         // Should only retrieve valid one
-        assert!(cache.get_ticket("host/valid.test@TEST.REALM").unwrap().is_some());
-        assert!(cache.get_ticket("host/expired.test@TEST.REALM").unwrap().is_none());
+        assert!(cache
+            .get_ticket("host/valid.test@TEST.REALM")
+            .unwrap()
+            .is_some());
+        assert!(cache
+            .get_ticket("host/expired.test@TEST.REALM")
+            .unwrap()
+            .is_none());
 
         // Purge should remove expired
         let removed = cache.purge_expired().unwrap();

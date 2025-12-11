@@ -185,11 +185,10 @@ impl Context {
     /// - GSS context initialization fails
     /// - Credentials are not available
     #[must_use = "the AP-REQ token must be sent to the server"]
-    #[cfg_attr(feature = "trace", instrument(
-        target = "kerbsec::ctx",
-        level = "info",
-        skip_all
-    ))]
+    #[cfg_attr(
+        feature = "trace",
+        instrument(target = "kerbsec::ctx", level = "info", skip_all)
+    )]
     pub fn initial_token(&mut self) -> Result<Vec<u8>> {
         #[cfg(unix)]
         {

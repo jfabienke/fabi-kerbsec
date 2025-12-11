@@ -77,7 +77,6 @@ pub enum Error {
     // =========================================================================
     // Windows AD specific errors
     // =========================================================================
-
     /// Clock skew error - client and server clocks differ by more than allowed
     ///
     /// Windows AD default: 5 minutes (300 seconds).

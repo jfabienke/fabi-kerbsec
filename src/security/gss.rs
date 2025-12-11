@@ -16,23 +16,23 @@ use std::time::Duration;
 // GSS context flag constants
 // These are standard GSS-API flags defined in RFC 2744
 
-/// GSS_C_DCE_STYLE flag (0x1000) - critical for DCE/RPC semantics
+/// `GSS_C_DCE_STYLE` flag (0x1000) - critical for DCE/RPC semantics
 /// This flag is not exposed by libgssapi, but is required for:
 /// - Disabling GSS sequence number checking (DCE has its own)
 /// - Allowing out-of-order message processing
 /// - Preventing GSS replay cache from interfering with DCE/RPC
 const GSS_C_DCE_STYLE: u32 = 0x1000;
 
-/// GSS_C_DELEG_FLAG (0x01) - allows server to act on client's behalf
+/// `GSS_C_DELEG_FLAG` (0x01) - allows server to act on client's behalf
 const GSS_C_DELEG_FLAG: u32 = 0x01;
 
-/// GSS_C_MUTUAL_FLAG (0x02) - mutual authentication required
+/// `GSS_C_MUTUAL_FLAG` (0x02) - mutual authentication required
 const GSS_C_MUTUAL_FLAG: u32 = 0x02;
 
-/// GSS_C_CONF_FLAG (0x10) - confidentiality available
+/// `GSS_C_CONF_FLAG` (0x10) - confidentiality available
 const GSS_C_CONF_FLAG: u32 = 0x10;
 
-/// GSS_C_INTEG_FLAG (0x20) - integrity available
+/// `GSS_C_INTEG_FLAG` (0x20) - integrity available
 const GSS_C_INTEG_FLAG: u32 = 0x20;
 
 #[cfg(feature = "trace")]
@@ -125,12 +125,10 @@ impl GssContext {
     }
 
     /// Generate initial AP-REQ token
-    #[cfg_attr(feature = "trace", instrument(
-        target = "kerbsec::gss",
-        level = "info",
-        skip_all,
-        fields(spn)
-    ))]
+    #[cfg_attr(
+        feature = "trace",
+        instrument(target = "kerbsec::gss", level = "info", skip_all, fields(spn))
+    )]
     pub fn initial_token(&mut self) -> Result<Vec<u8>> {
         // Build SPN
         let default_spn = format!("HOST/{}", self.config.target_fqdn);
@@ -207,7 +205,7 @@ impl GssContext {
             .config
             .channel_bindings
             .as_ref()
-            .and_then(|cb| cb.get_gss_data());
+            .and_then(ChannelBindings::get_gss_data);
 
         #[cfg(feature = "trace")]
         if let Some(ref data) = channel_binding_data {
@@ -239,7 +237,7 @@ impl GssContext {
             .config
             .channel_bindings
             .as_ref()
-            .and_then(|cb| cb.get_gss_data());
+            .and_then(ChannelBindings::get_gss_data);
 
         match ctx.step(Some(ap_rep), channel_binding_data.as_deref()) {
             Ok(token) => {
@@ -297,7 +295,7 @@ impl GssContext {
         }
     }
 
-    /// Query the actual negotiated context flags using gss_inquire_context
+    /// Query the actual negotiated context flags using `gss_inquire_context`
     ///
     /// This uses direct FFI to get the real flags that were negotiated,
     /// not just what we requested.
@@ -305,15 +303,14 @@ impl GssContext {
         use crate::ffi;
         use std::ptr;
 
-        let ctx = match &self.inner {
-            Some(c) => c,
-            None => return 0,
+        let Some(ctx) = &self.inner else {
+            return 0;
         };
 
         // SAFETY: We need to extract the raw context handle from ClientCtx
         // This uses the same technique as gss_iov.rs
         let ctx_handle = unsafe {
-            let ctx_ptr = ctx as *const ClientCtx as *const ffi::gss_ctx_id_t;
+            let ctx_ptr = ptr::from_ref(ctx).cast::<ffi::gss_ctx_id_t>();
             ptr::read(ctx_ptr)
         };
 
@@ -364,7 +361,8 @@ impl GssContext {
     }
 
     /// Check if the security context is fully established
-    #[must_use] pub const fn established(&self) -> bool {
+    #[must_use]
+    pub const fn established(&self) -> bool {
         self.established
     }
 
@@ -437,6 +435,7 @@ impl GssContext {
     /// For initiator (client) contexts, this indicates whether the server
     /// accepted the delegation request. For acceptor (server) contexts,
     /// this indicates whether delegated credentials were received.
+    #[allow(clippy::missing_const_for_fn)] // Can't be const: accesses self fields through method
     #[must_use]
     pub fn has_delegated_credentials(&self) -> bool {
         // Only return true if:
@@ -466,11 +465,14 @@ impl GssContext {
         #[cfg(feature = "trace")]
         warn!(target: "kerbsec::gss", "delegated credential export not yet implemented");
 
-        Err(Error::NotImplemented("credential export requires libgssapi support".into()))
+        Err(Error::NotImplemented(
+            "credential export requires libgssapi support".into(),
+        ))
     }
 
     /// Get the negotiated session key (not currently implemented)
-    #[must_use] pub const fn session_key(&self) -> Option<Vec<u8>> {
+    #[must_use]
+    pub const fn session_key(&self) -> Option<Vec<u8>> {
         // GSS-API doesn't directly expose session key
         // This would require platform-specific extraction
         None

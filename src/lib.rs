@@ -91,8 +91,7 @@ pub mod security;
 
 // Re-exports
 pub use config::{
-    AuthLevel, ChannelBindings, EncryptionType, KerberosConfig, KerberosConfigBuilder,
-    ServiceClass,
+    AuthLevel, ChannelBindings, EncryptionType, KerberosConfig, KerberosConfigBuilder, ServiceClass,
 };
 pub use context::Context;
 pub use error::{Error, Result};

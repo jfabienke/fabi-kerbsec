@@ -13,7 +13,8 @@ fn main() {
         // On Linux, try MIT Kerberos first
         if Config::new()
             .atleast_version("1.10")
-            .probe("krb5-gssapi").is_err()
+            .probe("krb5-gssapi")
+            .is_err()
         {
             // Fallback to generic gssapi
             if Config::new().probe("gssapi").is_err() {

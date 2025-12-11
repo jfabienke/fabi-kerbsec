@@ -6,8 +6,8 @@
 //! Run with: cargo run --example ccache_demo --features ccache
 
 use kerbsec::ccache::{
-    create_cache, CacheBackend, CacheConfig, Credential, CredentialCache,
-    EncType, KeyBlock, NameType, Principal, Times,
+    create_cache, CacheBackend, CacheConfig, Credential, CredentialCache, EncType, KeyBlock,
+    NameType, Principal, Times,
 };
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -32,9 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cache.open(cache_path)?;
 
     // Create a test credential
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_secs() as u32;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as u32;
 
     let credential = Credential {
         client: Principal::new(
@@ -54,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         times: Times {
             auth_time: now,
             start_time: now,
-            end_time: now + 36000, // Valid for 10 hours
+            end_time: now + 36000,   // Valid for 10 hours
             renew_till: now + 86400, // Renewable for 24 hours
         },
         is_config: 0,
@@ -66,7 +64,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Store the credential
-    println!("\nStoring credential for: {}", credential.server.to_string());
+    println!(
+        "\nStoring credential for: {}",
+        credential.server.to_string()
+    );
     cache.store_ticket(credential.clone())?;
 
     // List all tickets
@@ -81,10 +82,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cache.get_ticket(spn) {
         Ok(Some(retrieved)) => {
-        println!("  Client: {}", retrieved.client.to_string());
-        println!("  Server: {}", retrieved.server.to_string());
-        println!("  Encryption: {:?}", retrieved.key_block.enctype);
-        println!("  Valid until: {} seconds from epoch", retrieved.times.end_time);
+            println!("  Client: {}", retrieved.client.to_string());
+            println!("  Server: {}", retrieved.server.to_string());
+            println!("  Encryption: {:?}", retrieved.key_block.enctype);
+            println!(
+                "  Valid until: {} seconds from epoch",
+                retrieved.times.end_time
+            );
 
             let remaining = retrieved.times.end_time.saturating_sub(now);
             println!("  Time remaining: {} hours", remaining / 3600);
@@ -107,7 +111,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     expired_cred.times.end_time = 1000; // Way in the past
 
-    println!("\nAdding expired ticket for: {}", expired_cred.server.to_string());
+    println!(
+        "\nAdding expired ticket for: {}",
+        expired_cred.server.to_string()
+    );
     cache.store_ticket(expired_cred)?;
 
     println!("\nTickets before purge:");

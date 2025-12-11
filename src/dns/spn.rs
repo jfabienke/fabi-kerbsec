@@ -21,7 +21,6 @@ pub fn validate_spn_for_target(target: &str, spn_override: Option<&str>) -> Resu
             .ok_or(Error::IpTargetRequiresSpnOverride)
     } else {
         // Target is hostname, use default or override
-        Ok(spn_override
-            .map_or_else(|| build_spn(target), String::from))
+        Ok(spn_override.map_or_else(|| build_spn(target), String::from))
     }
 }

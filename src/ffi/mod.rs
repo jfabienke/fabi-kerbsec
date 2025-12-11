@@ -208,10 +208,7 @@ extern "C" {
     /// # Parameters
     /// - `minor_status`: Mechanism-specific status code
     /// - `buffer`: Buffer to be released
-    pub fn gss_release_buffer(
-        minor_status: *mut OM_uint32,
-        buffer: gss_buffer_t,
-    ) -> OM_uint32;
+    pub fn gss_release_buffer(minor_status: *mut OM_uint32, buffer: gss_buffer_t) -> OM_uint32;
 
     /// Inquire about a security context
     ///
@@ -245,10 +242,7 @@ extern "C" {
     /// # Parameters
     /// - `minor_status`: Mechanism-specific status code
     /// - `name`: Name to be released
-    pub fn gss_release_name(
-        minor_status: *mut OM_uint32,
-        name: *mut gss_name_t,
-    ) -> OM_uint32;
+    pub fn gss_release_name(minor_status: *mut OM_uint32, name: *mut gss_name_t) -> OM_uint32;
 
     /// Export credentials for delegation
     ///
@@ -317,6 +311,7 @@ pub const GSS_C_BOTH: c_int = 0;
 ///
 /// IOV is only available on Linux with MIT Kerberos.
 /// macOS GSS.framework doesn't expose IOV functions.
-#[must_use] pub const fn has_iov_support() -> bool {
+#[must_use]
+pub const fn has_iov_support() -> bool {
     cfg!(target_os = "linux")
 }

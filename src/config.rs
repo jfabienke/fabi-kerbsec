@@ -265,7 +265,8 @@ pub struct ChannelBindings {
 impl ChannelBindings {
     /// Create channel bindings from TLS data
     #[cfg(feature = "channel-bindings")]
-    #[must_use] pub fn from_tls(tls_bindings: crate::channel_bindings::ChannelBindings) -> Self {
+    #[must_use]
+    pub fn from_tls(tls_bindings: crate::channel_bindings::ChannelBindings) -> Self {
         Self {
             initiator_addr: tls_bindings.initiator_addr,
             acceptor_addr: tls_bindings.acceptor_addr,
@@ -278,7 +279,8 @@ impl ChannelBindings {
     }
 
     /// Get the channel binding data for GSS-API
-    #[must_use] pub fn get_gss_data(&self) -> Option<Vec<u8>> {
+    #[must_use]
+    pub fn get_gss_data(&self) -> Option<Vec<u8>> {
         #[cfg(feature = "channel-bindings")]
         if let Some(ref tls) = self.tls_bindings {
             if let Some(ref data) = tls.application_data {
@@ -384,9 +386,9 @@ impl Default for KerberosConfigBuilder {
             kccache: None,
             keytab: None,
             channel_bindings: None,
-            enable_dce_style: true,  // Default true for DCE/RPC
+            enable_dce_style: true,    // Default true for DCE/RPC
             enable_delegation: false,  // Default false for security
-            require_mutual_auth: true,  // Default true for security
+            require_mutual_auth: true, // Default true for security
         }
     }
 }
@@ -529,11 +531,10 @@ impl KerberosConfigBuilder {
     /// - Required fields are missing
     /// - IP address target is used without SPN override
     /// - SPN override has invalid format
-    #[cfg_attr(feature = "trace", instrument(
-        target = "kerbsec::config",
-        level = "debug",
-        skip_all
-    ))]
+    #[cfg_attr(
+        feature = "trace",
+        instrument(target = "kerbsec::config", level = "debug", skip_all)
+    )]
     pub fn build(self) -> Result<KerberosConfig> {
         let realm = self
             .realm
@@ -597,11 +598,10 @@ impl KerberosConfigBuilder {
     /// - SPN override has invalid format
     /// - DNS canonicalization fails
     #[cfg(feature = "dns")]
-    #[cfg_attr(feature = "trace", instrument(
-        target = "kerbsec::config",
-        level = "debug",
-        skip_all
-    ))]
+    #[cfg_attr(
+        feature = "trace",
+        instrument(target = "kerbsec::config", level = "debug", skip_all)
+    )]
     pub async fn build_async(self) -> Result<KerberosConfig> {
         use crate::dns::resolver::canonicalize_fqdn;
 
@@ -694,24 +694,30 @@ fn validate_spn(spn: &str) -> Result<()> {
     };
 
     // Check for service/hostname format
-    let slash_pos = spn_without_realm
-        .find('/')
-        .ok_or_else(|| Error::Config("SPN must contain '/' separator (format: service/hostname)".into()))?;
+    let slash_pos = spn_without_realm.find('/').ok_or_else(|| {
+        Error::Config("SPN must contain '/' separator (format: service/hostname)".into())
+    })?;
 
     // Service part must not be empty
     if slash_pos == 0 {
-        return Err(Error::Config("SPN service part cannot be empty (before '/')".into()));
+        return Err(Error::Config(
+            "SPN service part cannot be empty (before '/')".into(),
+        ));
     }
 
     // Hostname part must not be empty
     let hostname = &spn_without_realm[slash_pos + 1..];
     if hostname.is_empty() {
-        return Err(Error::Config("SPN hostname part cannot be empty (after '/')".into()));
+        return Err(Error::Config(
+            "SPN hostname part cannot be empty (after '/')".into(),
+        ));
     }
 
     // Check for double slashes
     if spn_without_realm.contains("//") {
-        return Err(Error::Config("SPN cannot contain '//' (double slash)".into()));
+        return Err(Error::Config(
+            "SPN cannot contain '//' (double slash)".into(),
+        ));
     }
 
     Ok(())
@@ -753,10 +759,22 @@ mod tests {
 
     #[test]
     fn test_service_class_spn_construction() {
-        assert_eq!(ServiceClass::Host.spn("server.example.com"), "HOST/server.example.com");
-        assert_eq!(ServiceClass::Http.spn("web.example.com"), "HTTP/web.example.com");
-        assert_eq!(ServiceClass::Ldap.spn("dc.example.com"), "LDAP/dc.example.com");
-        assert_eq!(ServiceClass::Cifs.spn("fileserver.example.com"), "cifs/fileserver.example.com");
+        assert_eq!(
+            ServiceClass::Host.spn("server.example.com"),
+            "HOST/server.example.com"
+        );
+        assert_eq!(
+            ServiceClass::Http.spn("web.example.com"),
+            "HTTP/web.example.com"
+        );
+        assert_eq!(
+            ServiceClass::Ldap.spn("dc.example.com"),
+            "LDAP/dc.example.com"
+        );
+        assert_eq!(
+            ServiceClass::Cifs.spn("fileserver.example.com"),
+            "cifs/fileserver.example.com"
+        );
     }
 
     #[test]
@@ -791,7 +809,10 @@ mod tests {
     fn test_service_class_custom() {
         let custom = ServiceClass::Custom("MYSERVICE".to_string());
         assert_eq!(custom.prefix(), "MYSERVICE");
-        assert_eq!(custom.spn("server.example.com"), "MYSERVICE/server.example.com");
+        assert_eq!(
+            custom.spn("server.example.com"),
+            "MYSERVICE/server.example.com"
+        );
     }
 
     #[test]
@@ -805,8 +826,14 @@ mod tests {
 
     #[test]
     fn test_encryption_type_names() {
-        assert_eq!(EncryptionType::Aes256CtsHmacSha196.name(), "aes256-cts-hmac-sha1-96");
-        assert_eq!(EncryptionType::Aes128CtsHmacSha196.name(), "aes128-cts-hmac-sha1-96");
+        assert_eq!(
+            EncryptionType::Aes256CtsHmacSha196.name(),
+            "aes256-cts-hmac-sha1-96"
+        );
+        assert_eq!(
+            EncryptionType::Aes128CtsHmacSha196.name(),
+            "aes128-cts-hmac-sha1-96"
+        );
     }
 
     #[test]
