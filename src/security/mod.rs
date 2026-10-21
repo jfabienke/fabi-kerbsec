@@ -17,9 +17,10 @@
 //! - [`traits::MockContextBuilder`] - Builder for configuring mock behavior
 //! - [`traits::SecurityContext`] - Trait abstraction for all context types
 
+#[cfg(unix)]
 pub mod gss;
 
-#[cfg(all(unix, feature = "iov"))]
+#[cfg(unix)]
 pub mod gss_iov;
 
 pub mod traits;

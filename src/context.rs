@@ -6,8 +6,9 @@
 //!
 //! # Thread Safety
 //!
-//! [`Context`] is `Send` but NOT `Sync` - it can be moved between threads
-//! but cannot be shared between threads without external synchronization.
+//! [`Context`] is `Send` but NOT `Sync` (enforced by a marker field) - it can be
+//! moved between threads but cannot be shared between threads without external
+//! synchronization.
 //!
 //! # Example
 //!
@@ -38,6 +39,9 @@
 
 #[cfg(feature = "trace")]
 use tracing::{debug, info, instrument, warn};
+
+use std::cell::Cell;
+use std::marker::PhantomData;
 
 use crate::config::{AuthLevel, ChannelBindings, KerberosConfig};
 use crate::error::Result;
@@ -76,10 +80,20 @@ use crate::security::gss::GssContext;
 ///     ctx2.initial_token()?; // Compile error: Context is not Sync
 /// });
 /// ```
+///
+/// The bound is enforced, not just documented:
+///
+/// ```compile_fail
+/// fn require_sync<T: Sync>() {}
+/// require_sync::<kerbsec::Context>();
+/// ```
 pub struct Context {
     #[cfg(unix)]
     inner: GssContext,
     config: KerberosConfig,
+    /// `Cell` is `Send` but not `Sync`; libgssapi's context type is `Sync`, so
+    /// without this marker `Context` would silently be too.
+    _not_sync: PhantomData<Cell<()>>,
 }
 
 impl Context {
@@ -111,7 +125,11 @@ impl Context {
             #[cfg(feature = "trace")]
             debug!(target: "kerbsec::ctx", "context created successfully");
 
-            Ok(Self { inner, config })
+            Ok(Self {
+                inner,
+                config,
+                _not_sync: PhantomData,
+            })
         }
 
         #[cfg(not(unix))]
@@ -165,13 +183,19 @@ impl Context {
     }
 
     /// Set channel bindings
-    pub fn set_channel_bindings(&mut self, cb: Option<ChannelBindings>) {
-        self.config.channel_bindings.clone_from(&cb);
-
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the handshake has already started
+    /// (`initial_token` was called).
+    pub fn set_channel_bindings(&mut self, cb: Option<ChannelBindings>) -> Result<()> {
         #[cfg(unix)]
         {
-            self.inner.set_channel_bindings(cb);
+            self.inner.set_channel_bindings(cb.clone())?;
         }
+
+        self.config.channel_bindings = cb;
+        Ok(())
     }
 
     /// Generate initial token (AP-REQ) for bind PDU
@@ -332,12 +356,21 @@ impl Context {
     /// Given a desired wrapped token size, returns the maximum message size
     /// that can be wrapped without exceeding the limit.
     ///
-    /// TODO: Implement using `gss_wrap_size_limit` when available in libgssapi.
-    /// Currently returns a conservative estimate.
+    /// Once the context is established this asks the mechanism
+    /// (`gss_wrap_size_limit`), so it reflects the negotiated encryption type.
+    /// A failed query returns 0 so a caller never over-sizes a fragment. Before
+    /// establishment there is nothing to wrap yet, and a conservative estimate is
+    /// returned.
     #[must_use]
-    pub const fn wrap_size_limit(&self, max_wrapped_size: usize, conf_req: bool) -> usize {
+    pub fn wrap_size_limit(&self, max_wrapped_size: usize, conf_req: bool) -> usize {
+        #[cfg(unix)]
+        match self.inner.wrap_size_limit(max_wrapped_size, conf_req) {
+            Ok(limit) => return limit,
+            Err(crate::error::Error::NotEstablished) => {}
+            Err(_) => return 0,
+        }
+
         // Conservative estimates based on typical Kerberos overhead
-        // Real implementation would use gss_wrap_size_limit
         let overhead = if conf_req {
             60 // Privacy: header + encryption padding + trailer
         } else {
@@ -443,9 +476,11 @@ mod _static_assertions {
     #[allow(dead_code)]
     const ASSERT_CONTEXT_IS_SEND: () = require_send::<Context>();
 
-    // Note: We explicitly do NOT assert Sync because Context is not Sync.
-    // The underlying GSS context maintains internal state (sequence numbers,
-    // replay cache) that is not thread-safe for concurrent access.
+    // Context is deliberately !Sync (see the `_not_sync` field). The underlying GSS
+    // context maintains internal state (sequence numbers, replay cache) that is
+    // not thread-safe for concurrent access, and libgssapi's own context type
+    // claims Sync, so the marker is what makes this true. A `compile_fail`
+    // doctest on `Context` guards it.
     //
     // Users who need concurrent access should use Mutex<Context> or similar.
 }

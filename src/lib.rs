@@ -78,7 +78,7 @@ pub mod error;
 #[cfg(feature = "dns")]
 pub mod dns;
 
-#[cfg(all(unix, feature = "iov"))]
+#[cfg(unix)]
 pub mod ffi;
 
 #[cfg(feature = "ccache")]

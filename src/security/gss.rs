@@ -9,7 +9,7 @@ use crate::security::IovWrap;
 use libgssapi::context::{ClientCtx, CtxFlags, SecurityContext};
 use libgssapi::credential::{Cred, CredUsage};
 use libgssapi::name::Name;
-use libgssapi::oid::{GSS_MECH_KRB5, GSS_NT_HOSTBASED_SERVICE};
+use libgssapi::oid::{GSS_MECH_KRB5, GSS_NT_KRB5_PRINCIPAL};
 use std::sync::Once;
 use std::time::Duration;
 
@@ -120,8 +120,36 @@ impl GssContext {
     }
 
     /// Update channel bindings configuration after context creation
-    pub fn set_channel_bindings(&mut self, cb: Option<ChannelBindings>) {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error once the handshake has started: the bindings are part of
+    /// the first token, so changing them afterwards would make later legs
+    /// inconsistent with it.
+    pub fn set_channel_bindings(&mut self, cb: Option<ChannelBindings>) -> Result<()> {
+        if self.inner.is_some() {
+            return Err(Error::HandshakeState(
+                "channel bindings must be set before initial_token",
+            ));
+        }
         self.config.channel_bindings = cb;
+        Ok(())
+    }
+
+    /// Channel binding data for the GSS calls, rejecting bindings GSS cannot carry
+    ///
+    /// Only `application_data` is passed to GSS-API; address-only bindings would be
+    /// silently dropped, so they are an error rather than "no bindings".
+    fn channel_binding_data(&self) -> Result<Option<Vec<u8>>> {
+        let Some(cb) = self.config.channel_bindings.as_ref() else {
+            return Ok(None);
+        };
+        cb.get_gss_data().map(Some).ok_or_else(|| {
+            Error::Config(
+                "channel bindings have no application data; address-only bindings are not supported"
+                    .into(),
+            )
+        })
     }
 
     /// Generate initial AP-REQ token
@@ -130,20 +158,21 @@ impl GssContext {
         instrument(target = "kerbsec::gss", level = "info", skip_all, fields(spn))
     )]
     pub fn initial_token(&mut self) -> Result<Vec<u8>> {
-        // Build SPN
-        let default_spn = format!("HOST/{}", self.config.target_fqdn);
-        let spn = self.config.spn_override.as_deref().unwrap_or(&default_spn);
+        if self.inner.is_some() {
+            return Err(Error::HandshakeState(
+                "initial_token already called on this context",
+            ));
+        }
+
+        let spn = target_principal(&self.config);
 
         #[cfg(feature = "trace")]
         info!(target: "kerbsec::gss", spn = %spn, mech = "KRB5", "initializing GSS context");
 
-        // Create target name
-        let target =
-            Name::new(spn.as_bytes(), Some(&GSS_NT_HOSTBASED_SERVICE)).map_err(|e| Error::Gss {
-                major: 0,
-                minor: 0,
-                text: format!("Failed to create target name: {e}"),
-            })?;
+        // Import as a Kerberos principal name. `GSS_NT_HOSTBASED_SERVICE` would be
+        // wrong here: it expects `service@host`, so `HOST/fqdn` was read as a bare
+        // service name with the *local* hostname appended.
+        let target = Name::new(spn.as_bytes(), Some(&GSS_NT_KRB5_PRINCIPAL)).map_err(gss_error)?;
 
         // Create credentials (use default)
         // Note: libgssapi 0.9.1 API changed - parameter order is different
@@ -177,10 +206,10 @@ impl GssContext {
             debug!(target: "kerbsec::gss", "credential delegation enabled");
         }
 
-        // Add confidentiality flag based on config
-        if matches!(self.config.default_auth, AuthLevel::Privacy) {
-            flags |= CtxFlags::GSS_C_CONF_FLAG;
-        }
+        // Always request confidentiality so a per-call `AuthLevel::Privacy` wrap
+        // works on a context whose default is Integrity. Whether a given message is
+        // sealed is still decided per call by `conf_req`.
+        flags |= CtxFlags::GSS_C_CONF_FLAG;
 
         // Add GSS_C_DCE_STYLE flag when configured (default: true for DCE/RPC)
         if self.config.enable_dce_style {
@@ -201,11 +230,7 @@ impl GssContext {
         // Initialize context - API changed in libgssapi 0.9.1
         let mut ctx = ClientCtx::new(Some(cred), target, flags, Some(&GSS_MECH_KRB5));
 
-        let channel_binding_data = self
-            .config
-            .channel_bindings
-            .as_ref()
-            .and_then(ChannelBindings::get_gss_data);
+        let channel_binding_data = self.channel_binding_data()?;
 
         #[cfg(feature = "trace")]
         if let Some(ref data) = channel_binding_data {
@@ -231,68 +256,70 @@ impl GssContext {
         fields(ap_rep_size = ap_rep.len())
     ))]
     pub fn accept_ap_rep(&mut self, ap_rep: &[u8]) -> Result<Option<Vec<u8>>> {
-        let ctx = self.inner.as_mut().ok_or(Error::NotEstablished)?;
+        if self.established {
+            return Err(Error::HandshakeState("context is already established"));
+        }
+        let channel_binding_data = self.channel_binding_data()?;
+        let ctx = self.inner.as_mut().ok_or(Error::HandshakeState(
+            "accept_ap_rep called before initial_token",
+        ))?;
 
-        let channel_binding_data = self
-            .config
-            .channel_bindings
-            .as_ref()
-            .and_then(ChannelBindings::get_gss_data);
-
-        match ctx.step(Some(ap_rep), channel_binding_data.as_deref()) {
-            Ok(token) => {
-                // Check if complete - is_complete() returns bool directly
-                if ctx.is_complete() {
-                    // Query the flags the mechanism actually negotiated, not what we
-                    // requested. Failing to learn them is an error: assuming the
-                    // requested flags were granted would fail open.
-                    let negotiated_flags = ctx.flags().map_err(gss_error)?.bits();
-                    self.established = true;
-
-                    // Check if delegation was actually granted
-                    self.delegation_negotiated = (negotiated_flags & GSS_C_DELEG_FLAG) != 0;
-
-                    // Log the actual negotiated security properties
-                    #[cfg(feature = "trace")]
-                    {
-                        let has_mutual = (negotiated_flags & GSS_C_MUTUAL_FLAG) != 0;
-                        let has_conf = (negotiated_flags & GSS_C_CONF_FLAG) != 0;
-                        let has_integ = (negotiated_flags & GSS_C_INTEG_FLAG) != 0;
-
-                        info!(
-                            target: "kerbsec::gss",
-                            flags = format_args!("{:#x}", negotiated_flags),
-                            delegation = self.delegation_negotiated,
-                            mutual = has_mutual,
-                            confidentiality = has_conf,
-                            integrity = has_integ,
-                            "GSS context established"
-                        );
-
-                        // Warn if delegation was requested but not granted
-                        if self.config.enable_delegation && !self.delegation_negotiated {
-                            warn!(
-                                target: "kerbsec::gss",
-                                "delegation was requested but not granted by server"
-                            );
-                        }
-                    }
-
-                    // DCE requires sending third leg even if empty
-                    Ok(Some(token.map_or_else(Vec::new, |t| t.to_vec())))
-                } else {
-                    // Should not happen in DCE 3-leg
-                    #[cfg(feature = "trace")]
-                    warn!(target: "kerbsec::gss", "AP-REP accepted but context not complete (unexpected)");
-                    Ok(token.map(|t| t.to_vec()))
-                }
-            }
+        let token = match ctx.step(Some(ap_rep), channel_binding_data.as_deref()) {
+            Ok(token) => token,
             Err(e) => {
                 #[cfg(feature = "trace")]
                 error!(target: "kerbsec::gss", error = %e, "failed to process AP-REP");
-                Err(gss_error(e))
+                return Err(gss_error(e));
+            }
+        };
+
+        if !ctx.is_complete() {
+            // DCE/RPC is a fixed 3-leg exchange; a further round trip means the
+            // peer did not behave like one. Don't report it as established.
+            #[cfg(feature = "trace")]
+            warn!(target: "kerbsec::gss", "AP-REP accepted but context not complete");
+            return Err(Error::HandshakeState(
+                "context not complete after AP-REP; expected a 3-leg exchange",
+            ));
+        }
+
+        // Query the flags the mechanism actually negotiated, not what we
+        // requested. Failing to learn them is an error: assuming the requested
+        // flags were granted would fail open.
+        let negotiated_flags = ctx.flags().map_err(gss_error)?.bits();
+        if let Err(e) = verify_negotiated_flags(&self.config, negotiated_flags) {
+            // Don't leave a context with weaker protection than configured
+            // around where it could be wrapped/unwrapped through.
+            self.inner = None;
+            return Err(e);
+        }
+
+        self.established = true;
+        self.delegation_negotiated = (negotiated_flags & GSS_C_DELEG_FLAG) != 0;
+
+        #[cfg(feature = "trace")]
+        {
+            info!(
+                target: "kerbsec::gss",
+                flags = format_args!("{:#x}", negotiated_flags),
+                delegation = self.delegation_negotiated,
+                mutual = (negotiated_flags & GSS_C_MUTUAL_FLAG) != 0,
+                confidentiality = (negotiated_flags & GSS_C_CONF_FLAG) != 0,
+                integrity = (negotiated_flags & GSS_C_INTEG_FLAG) != 0,
+                "GSS context established"
+            );
+
+            // Delegation is best-effort: warn if requested but not granted
+            if self.config.enable_delegation && !self.delegation_negotiated {
+                warn!(
+                    target: "kerbsec::gss",
+                    "delegation was requested but not granted by server"
+                );
             }
         }
+
+        // DCE requires sending third leg even if empty
+        Ok(Some(token.map_or_else(Vec::new, |t| t.to_vec())))
     }
 
     /// Check if the security context is fully established
@@ -303,8 +330,9 @@ impl GssContext {
 
     /// Wrap PDU with IOV-like interface for DCE/RPC
     ///
-    /// When the `iov` feature is enabled, this uses true GSS IOV operations
-    /// for zero-copy wrapping. Otherwise falls back to regular wrap.
+    /// Uses native GSS IOV on Linux with the `iov` feature, otherwise regular
+    /// `gss_wrap`. Requesting [`AuthLevel::Privacy`] fails if the mechanism does
+    /// not actually encrypt.
     pub fn wrap_iov(&mut self, pdu: &[u8], level: AuthLevel) -> Result<IovWrap> {
         let ctx = self.inner.as_mut().ok_or(Error::NotEstablished)?;
 
@@ -314,37 +342,15 @@ impl GssContext {
 
         let conf_req = matches!(level, AuthLevel::Privacy);
 
-        #[cfg(feature = "iov")]
-        {
-            // Use real IOV implementation from libgssapi
-            super::gss_iov::wrap_iov_real(ctx, pdu, conf_req)
-        }
-
-        #[cfg(not(feature = "iov"))]
-        {
-            use bytes::Bytes;
-            // Fallback: Use regular wrap - return full token as header
-            // DCE/RPC will need to handle this as a single token
-            match ctx.wrap(conf_req, pdu) {
-                Ok(wrapped) => {
-                    // Return entire wrapped token as header
-                    // Trailer is empty since we can't separate without IOV
-                    Ok(IovWrap {
-                        header: Bytes::from(wrapped.to_vec()),
-                        payload: Bytes::new(),
-                        trailer: Bytes::new(),
-                        conf: conf_req,
-                    })
-                }
-                Err(e) => Err(gss_error(e)),
-            }
-        }
+        super::gss_iov::wrap_iov_real(ctx, pdu, conf_req)
     }
 
-    /// Unwrap token with IOV-like interface
+    /// Unwrap a complete `gss_wrap` token
     ///
-    /// When the `iov` feature is enabled, this uses true GSS IOV operations.
-    /// Otherwise falls back to regular unwrap.
+    /// Concatenated `IovWrap` fragments (header, payload, trailer) are a valid
+    /// token. If the context was configured for [`AuthLevel::Privacy`], a token
+    /// that was not encrypted is rejected, so a peer cannot downgrade the
+    /// session to integrity-only.
     pub fn unwrap_iov(&mut self, token: &[u8]) -> Result<Vec<u8>> {
         let ctx = self.inner.as_mut().ok_or(Error::NotEstablished)?;
 
@@ -352,11 +358,22 @@ impl GssContext {
             return Err(Error::NotEstablished);
         }
 
-        // Use regular unwrap since IOV is not available
-        match ctx.unwrap(token) {
-            Ok(data) => Ok(data.to_vec()),
-            Err(e) => Err(gss_error(e)),
+        let require_conf = matches!(self.config.default_auth, AuthLevel::Privacy);
+        super::gss_iov::unwrap_token(ctx, token, require_conf)
+    }
+
+    /// Maximum message size that wraps into at most `max_wrapped` bytes
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotEstablished`] before the handshake completes, or a GSS
+    /// error if the mechanism cannot answer.
+    pub fn wrap_size_limit(&self, max_wrapped: usize, conf_req: bool) -> Result<usize> {
+        let ctx = self.inner.as_ref().ok_or(Error::NotEstablished)?;
+        if !self.established {
+            return Err(Error::NotEstablished);
         }
+        super::gss_iov::wrap_size_limit_real(ctx, conf_req, max_wrapped)
     }
 
     /// Check if delegated credentials are available
@@ -414,6 +431,43 @@ impl GssContext {
     }
 }
 
+/// The service principal to authenticate to: `spn[@realm]`
+///
+/// The SPN is the configured override, or `HOST/<fqdn>`. The configured realm is
+/// appended unless the SPN already names one.
+fn target_principal(config: &KerberosConfig) -> String {
+    let spn = config
+        .spn_override
+        .clone()
+        .unwrap_or_else(|| format!("HOST/{}", config.target_fqdn));
+    if spn.contains('@') {
+        spn
+    } else {
+        format!("{spn}@{}", config.realm)
+    }
+}
+
+/// Check the negotiated flags against what the configuration requires.
+///
+/// Integrity is always required. Mutual authentication, confidentiality (for
+/// `AuthLevel::Privacy`) and DCE style are required when configured. Delegation
+/// is deliberately not enforced: it is best-effort and reported separately.
+const fn verify_negotiated_flags(config: &KerberosConfig, flags: u32) -> Result<()> {
+    if flags & GSS_C_INTEG_FLAG == 0 {
+        return Err(Error::FlagNotNegotiated("integrity"));
+    }
+    if config.require_mutual_auth && flags & GSS_C_MUTUAL_FLAG == 0 {
+        return Err(Error::FlagNotNegotiated("mutual authentication"));
+    }
+    if matches!(config.default_auth, AuthLevel::Privacy) && flags & GSS_C_CONF_FLAG == 0 {
+        return Err(Error::FlagNotNegotiated("confidentiality"));
+    }
+    if config.enable_dce_style && flags & GSS_C_DCE_STYLE == 0 {
+        return Err(Error::FlagNotNegotiated("DCE style"));
+    }
+    Ok(())
+}
+
 fn gss_error(e: libgssapi::error::Error) -> Error {
     // Extract major and minor codes from libgssapi error
     let major = e.major.bits();
@@ -430,4 +484,42 @@ fn gss_error(e: libgssapi::error::Error) -> Error {
     );
 
     Error::Gss { major, minor, text }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(spn_override: Option<&str>) -> KerberosConfig {
+        KerberosConfig::builder()
+            .realm("CORP.EXAMPLE.COM")
+            .target_host("web.corp.example.com")
+            .spn_override(spn_override.map(str::to_owned))
+            .build()
+            .expect("config")
+    }
+
+    #[test]
+    fn default_principal_is_host_spn_in_configured_realm() {
+        assert_eq!(
+            target_principal(&config(None)),
+            "HOST/web.corp.example.com@CORP.EXAMPLE.COM"
+        );
+    }
+
+    #[test]
+    fn override_gets_realm_appended() {
+        assert_eq!(
+            target_principal(&config(Some("HTTP/api.corp.example.com"))),
+            "HTTP/api.corp.example.com@CORP.EXAMPLE.COM"
+        );
+    }
+
+    #[test]
+    fn override_with_realm_is_kept() {
+        assert_eq!(
+            target_principal(&config(Some("cifs/fs.other.example@OTHER.EXAMPLE"))),
+            "cifs/fs.other.example@OTHER.EXAMPLE"
+        );
+    }
 }

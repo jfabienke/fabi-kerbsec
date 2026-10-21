@@ -139,7 +139,8 @@ pub const GSS_C_NO_BUFFER: gss_buffer_t = std::ptr::null_mut();
 /// Default quality of protection
 pub const GSS_C_QOP_DEFAULT: gss_qop_t = 0;
 
-// External functions - IOV operations (Linux only)
+// External functions - IOV operations (Linux only; `gss_wrap_size_limit` is core
+// RFC 2744 and declared below for all platforms)
 #[cfg(target_os = "linux")]
 extern "C" {
     /// Wrap (sign/encrypt) message data using IOV buffers
@@ -185,7 +186,10 @@ extern "C" {
         iov: gss_iov_buffer_t,
         iov_count: c_int,
     ) -> OM_uint32;
+}
 
+// External functions - Available on all platforms
+extern "C" {
     /// Query the maximum message size for wrapped output
     ///
     /// Returns the maximum input message size that will fit in the requested
@@ -206,10 +210,32 @@ extern "C" {
         req_output_size: OM_uint32,
         max_input_size: *mut OM_uint32,
     ) -> OM_uint32;
-}
 
-// External functions - Available on all platforms
-extern "C" {
+    /// Wrap (sign/encrypt) a message into a single token (RFC 2744 `gss_wrap`)
+    ///
+    /// `conf_state` reports whether confidentiality was actually applied, which
+    /// may be false even when `conf_req_flag` was set.
+    pub fn gss_wrap(
+        minor_status: *mut OM_uint32,
+        context_handle: gss_ctx_id_t,
+        conf_req_flag: c_int,
+        qop_req: gss_qop_t,
+        input_message_buffer: gss_buffer_t,
+        conf_state: *mut c_int,
+        output_message_buffer: gss_buffer_t,
+    ) -> OM_uint32;
+
+    /// Verify and/or decrypt a wrapped token (RFC 2744 `gss_unwrap`)
+    ///
+    /// `conf_state` reports whether the token was encrypted.
+    pub fn gss_unwrap(
+        minor_status: *mut OM_uint32,
+        context_handle: gss_ctx_id_t,
+        input_message_buffer: gss_buffer_t,
+        output_message_buffer: gss_buffer_t,
+        conf_state: *mut c_int,
+        qop_state: *mut gss_qop_t,
+    ) -> OM_uint32;
     /// Display a GSS-API status code as a human-readable string
     ///
     /// # Parameters
@@ -258,9 +284,33 @@ extern "C" {
 
 /// Check if IOV operations are available on this platform
 ///
-/// IOV is only available on Linux with MIT Kerberos.
-/// macOS GSS.framework doesn't expose IOV functions.
+/// The `gss_wrap_iov` family is declared only on Linux (MIT Kerberos). macOS
+/// GSS.framework doesn't expose it, so other platforms use `gss_wrap`/`gss_unwrap`.
 #[must_use]
 pub const fn has_iov_support() -> bool {
     cfg!(target_os = "linux")
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+    use std::mem::{align_of, offset_of, size_of};
+
+    // These mirror MIT's gssapi.h / gssapi_ext.h; a mismatch here is memory unsafety
+    // at the FFI boundary, so pin the sizes the C ABI requires.
+    #[test]
+    fn gss_buffer_desc_layout() {
+        assert_eq!(size_of::<gss_buffer_desc>(), 2 * size_of::<usize>());
+        assert_eq!(offset_of!(gss_buffer_desc, length), 0);
+        assert_eq!(offset_of!(gss_buffer_desc, value), size_of::<usize>());
+    }
+
+    #[test]
+    fn gss_iov_buffer_desc_layout() {
+        // { OM_uint32 type; gss_buffer_desc buffer; } - buffer aligned to usize
+        assert_eq!(offset_of!(gss_iov_buffer_desc, type_), 0);
+        assert_eq!(offset_of!(gss_iov_buffer_desc, buffer), align_of::<usize>());
+        assert_eq!(size_of::<gss_iov_buffer_desc>(), 3 * size_of::<usize>());
+        assert_eq!(size_of::<OM_uint32>(), 4);
+    }
 }

@@ -5,30 +5,36 @@
 //!
 //! # Platform Support
 //!
-//! - **Linux**: Full native IOV support via `gss_wrap_iov`/`gss_unwrap_iov`
-//! - **macOS/Other**: Falls back to regular `gss_wrap`/`gss_unwrap` with
-//!   estimated header/trailer sizes
+//! - **Linux with the `iov` feature**: native `gss_wrap_iov`/`gss_unwrap_iov`
+//! - **Otherwise (macOS, no `iov`)**: Falls back to regular `gss_wrap`/`gss_unwrap`; the whole
+//!   token is returned in `IovWrap::header`
+//!
+//! # Confidentiality
+//!
+//! libgssapi discards `conf_state`, so every call here goes through our own FFI
+//! and checks it. Requesting Privacy and getting an integrity-only token back is
+//! an error ([`Error::ConfidentialityNotProvided`]), as is accepting an
+//! unencrypted token when the caller requires Privacy.
+
+// `&mut ClientCtx` is deliberate throughout: wrap/unwrap advance the context's
+// sequence state inside GSS even though only the raw handle is touched here.
+#![allow(clippy::needless_pass_by_ref_mut)]
 
 use crate::error::{Error, Result};
-#[cfg(target_os = "linux")]
 use crate::ffi;
 use crate::security::IovWrap;
 use bytes::Bytes;
 use libgssapi::context::ClientCtx;
-#[cfg(target_os = "linux")]
 use std::ptr;
-#[cfg(target_os = "linux")]
 use std::slice;
-
-#[cfg(all(feature = "trace", target_os = "linux"))]
-use tracing::{debug, error};
+use zeroize::Zeroize;
 
 #[cfg(feature = "trace")]
-use tracing::{instrument, warn};
+use tracing::{debug, error, instrument, warn};
 
 /// Maximum sizes for IOV buffers based on RFC 4121 and common cipher suites.
 /// These are generous upper bounds to handle all supported encryption types.
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "iov"))]
 mod buffer_sizes {
     /// Maximum GSS header size (token header + encryption IV)
     /// AES-256 with 16-byte IV + GSS header overhead
@@ -42,64 +48,51 @@ mod buffer_sizes {
     pub const MAX_TRAILER_SIZE: usize = 256;
 }
 
-/// Get the raw GSS context handle from `ClientCtx` using unsafe memory access.
+/// Get the raw GSS context handle from `ClientCtx`.
 ///
-/// # Safety
+/// Uses the `raw_ctx` accessor of the vendored libgssapi (see
+/// `vendor/libgssapi/README.md`), so nothing here depends on `ClientCtx`'s
+/// field layout. The handle is owned by `ctx`; callers must only use it while
+/// they hold the borrow and must never delete it.
 ///
-/// This function relies on the internal layout of `libgssapi::context::ClientCtx`.
-/// The following invariants must hold:
+/// # Errors
 ///
-/// 1. `ClientCtx` must have `gss_ctx_id_t` as its first field
-/// 2. `ClientCtx` must be `#[repr(C)]` or have a compatible layout
-/// 3. The context must be initialized (not in an invalid state)
-///
-/// This is verified against `libgssapi` version 0.9.1. If you upgrade the
-/// dependency, verify that the struct layout hasn't changed.
-///
-/// # Panics
-///
-/// Panics if the extracted context handle is null, which indicates either:
-/// - The context was not properly initialized
-/// - The struct layout assumption is incorrect
-#[cfg(target_os = "linux")]
-unsafe fn get_raw_ctx_handle(ctx: &ClientCtx) -> ffi::gss_ctx_id_t {
-    // ClientCtx in libgssapi 0.9.1 has the following layout:
-    // pub struct ClientCtx {
-    //     ctx: gss_ctx_id_t,  // First field - this is what we need
-    //     cred: Option<Cred>,
-    //     target: Name,
-    //     flags: CtxFlags,
-    //     mech: Option<&'static Oid>,
-    // }
-    //
-    // We extract the first field by treating the struct pointer as a pointer
-    // to gss_ctx_id_t. This works because:
-    // - gss_ctx_id_t is a pointer type (no alignment issues)
-    // - It's the first field (offset 0)
-    let ctx_ptr = std::ptr::from_ref(ctx).cast::<ffi::gss_ctx_id_t>();
-    let handle = ptr::read(ctx_ptr);
+/// Returns [`Error::NotEstablished`] if no handle exists yet.
+fn raw_handle(ctx: &ClientCtx) -> Result<ffi::gss_ctx_id_t> {
+    let handle: ffi::gss_ctx_id_t = ctx.raw_ctx().cast();
+    if handle.is_null() {
+        return Err(Error::NotEstablished);
+    }
+    Ok(handle)
+}
 
-    // Validate that we got a non-null handle
-    assert!(
-        !handle.is_null(),
-        "GSS context handle is null - context may not be initialized or struct layout changed"
-    );
-
-    handle
+/// Fail if Privacy was requested but `conf_state` says it was not applied.
+const fn require_conf_applied(
+    conf_req: bool,
+    conf_state: libc::c_int,
+    what: &'static str,
+) -> Result<()> {
+    if conf_req && conf_state == 0 {
+        return Err(Error::ConfidentialityNotProvided(what));
+    }
+    Ok(())
 }
 
 /// Wrap a PDU using GSS IOV for zero-copy operation
 ///
 /// This is the real IOV implementation that avoids data copying on Linux.
-/// On other platforms, it falls back to regular `gss_wrap` with estimated
-/// header/trailer separation.
+/// On other platforms, it falls back to regular `gss_wrap` with the whole
+/// token returned in the header.
+///
+/// `IovWrap::conf` reflects what the mechanism reported, not what was requested.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 /// - The GSS context is not established
 /// - The wrap operation fails
-/// - Buffer allocation fails
+/// - `conf_req` is set but confidentiality was not applied
+/// - The mechanism requires padding, which the IOV layout here cannot carry
 #[cfg_attr(feature = "trace", instrument(
     target = "kerbsec::iov",
     level = "debug",
@@ -107,8 +100,7 @@ unsafe fn get_raw_ctx_handle(ctx: &ClientCtx) -> ffi::gss_ctx_id_t {
     fields(conf_req, pdu_len = pdu.len())
 ))]
 pub fn wrap_iov_real(ctx: &mut ClientCtx, pdu: &[u8], conf_req: bool) -> Result<IovWrap> {
-    // IOV is only available on Linux - use fallback on other platforms
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(all(target_os = "linux", feature = "iov")))]
     {
         #[cfg(feature = "trace")]
         warn!(target: "kerbsec::iov", "IOV wrap not available on this platform, using fallback");
@@ -116,19 +108,19 @@ pub fn wrap_iov_real(ctx: &mut ClientCtx, pdu: &[u8], conf_req: bool) -> Result<
         wrap_iov_fallback(ctx, pdu, conf_req)
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "iov"))]
     {
         wrap_iov_native(ctx, pdu, conf_req)
     }
 }
 
 /// Native IOV wrap implementation for Linux
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "iov"))]
+#[allow(clippy::too_many_lines)] // the four IOV descriptors are spelled out for clarity
 fn wrap_iov_native(ctx: &mut ClientCtx, pdu: &[u8], conf_req: bool) -> Result<IovWrap> {
     use buffer_sizes::{MAX_HEADER_SIZE, MAX_PADDING_SIZE, MAX_TRAILER_SIZE};
 
-    // SAFETY: We verify the context handle is non-null in get_raw_ctx_handle
-    let ctx_handle = unsafe { get_raw_ctx_handle(ctx) };
+    let ctx_handle = raw_handle(ctx)?;
 
     // Create IOV buffers with generous sizes based on RFC 4121
     let mut header_buf = vec![0u8; MAX_HEADER_SIZE];
@@ -170,7 +162,8 @@ fn wrap_iov_native(ctx: &mut ClientCtx, pdu: &[u8], conf_req: bool) -> Result<Io
     let mut minor_status: ffi::OM_uint32 = 0;
     let mut conf_state: libc::c_int = 0;
 
-    // SAFETY: All buffers are valid and properly sized
+    // SAFETY: All buffers are valid, live for the call, and sized as described;
+    // `ctx_handle` is owned by `ctx`, which is mutably borrowed for the call.
     let major_status = unsafe {
         ffi::gss_wrap_iov(
             &mut minor_status,
@@ -191,22 +184,41 @@ fn wrap_iov_native(ctx: &mut ClientCtx, pdu: &[u8], conf_req: bool) -> Result<Io
             minor = format_args!("{:#x}", minor_status),
             "gss_wrap_iov failed"
         );
+        data_buf.zeroize();
         return Err(gss_error(major_status, minor_status));
     }
 
     // Extract the actual used lengths (GSS updates these in-place)
     let header_len = iov_descs[0].buffer.length;
     let payload_len = iov_descs[1].buffer.length;
+    let padding_len = iov_descs[2].buffer.length;
     let trailer_len = iov_descs[3].buffer.length;
 
     // Validate that GSS didn't try to write beyond our buffers
     if header_len > MAX_HEADER_SIZE
         || payload_len > data_buf.len()
+        || padding_len > MAX_PADDING_SIZE
         || trailer_len > MAX_TRAILER_SIZE
     {
+        data_buf.zeroize();
         return Err(Error::Iov(format!(
-            "GSS returned unexpected sizes: header={header_len}, payload={payload_len}, trailer={trailer_len}"
+            "GSS returned unexpected sizes: header={header_len}, payload={payload_len}, padding={padding_len}, trailer={trailer_len}"
         )));
+    }
+
+    // `IovWrap` has no padding fragment, so a token that needs one would be
+    // truncated and unverifiable by the peer. RFC 4121 (AES) never pads; this
+    // only fires for legacy enctypes. Fail rather than emit a broken token.
+    if padding_len != 0 {
+        data_buf.zeroize();
+        return Err(Error::Iov(format!(
+            "mechanism produced {padding_len} bytes of IOV padding, which is not supported"
+        )));
+    }
+
+    if let Err(e) = require_conf_applied(conf_req, conf_state, "gss_wrap_iov") {
+        data_buf.zeroize();
+        return Err(e);
     }
 
     header_buf.truncate(header_len);
@@ -238,49 +250,157 @@ fn wrap_iov_native(ctx: &mut ClientCtx, pdu: &[u8], conf_req: bool) -> Result<Io
 
 /// Fallback wrap implementation for platforms without IOV support (macOS, etc.)
 ///
-/// Uses regular `gss_wrap` and estimates header/trailer split based on
-/// typical GSS token structure.
-#[cfg(not(target_os = "linux"))]
+/// Uses regular `gss_wrap`, observing `conf_state`, and returns the whole token
+/// in `header` since the header/trailer split can't be recovered without IOV.
+#[cfg_attr(all(target_os = "linux", feature = "iov"), allow(dead_code))]
 fn wrap_iov_fallback(ctx: &mut ClientCtx, pdu: &[u8], conf_req: bool) -> Result<IovWrap> {
-    use libgssapi::context::SecurityContext;
-
-    // Use regular wrap - this returns the complete wrapped token
-    let wrapped = ctx
-        .wrap(conf_req, pdu)
-        .map_err(|e| Error::Iov(format!("GSS wrap failed: {e}")))?;
-
-    let wrapped_bytes = wrapped.to_vec();
-
-    // For the fallback, we put everything in the header and leave
-    // payload/trailer empty. The caller needs to handle this appropriately.
-    // This is because we can't reliably split the token without IOV support.
-    //
-    // Alternative: We could try to parse the GSS token structure (RFC 4121)
-    // but that's fragile and mechanism-dependent.
+    let (token, conf_state) = wrap_token(ctx, pdu, conf_req)?;
+    require_conf_applied(conf_req, conf_state, "gss_wrap")?;
 
     #[cfg(feature = "trace")]
     warn!(
         target: "kerbsec::iov",
-        wrapped_len = wrapped_bytes.len(),
+        wrapped_len = token.len(),
         "fallback wrap: entire token in header, payload/trailer empty"
     );
 
     Ok(IovWrap {
-        header: Bytes::from(wrapped_bytes),
+        header: Bytes::from(token),
         payload: Bytes::new(),
         trailer: Bytes::new(),
-        conf: conf_req,
+        conf: conf_state != 0,
     })
 }
 
-/// Unwrap a token using GSS IOV
+/// Wrap `msg` into one `gss_wrap` token, returning it with the real `conf_state`.
+///
+/// # Errors
+///
+/// Returns an error if the context has no handle or `gss_wrap` fails.
+pub(crate) fn wrap_token(
+    ctx: &mut ClientCtx,
+    msg: &[u8],
+    conf_req: bool,
+) -> Result<(Vec<u8>, libc::c_int)> {
+    let ctx_handle = raw_handle(ctx)?;
+
+    let mut input = ffi::gss_buffer_desc {
+        length: msg.len(),
+        value: msg.as_ptr().cast_mut().cast(),
+    };
+    let mut output = ffi::gss_buffer_desc {
+        length: 0,
+        value: ptr::null_mut(),
+    };
+    let mut minor_status: ffi::OM_uint32 = 0;
+    let mut conf_state: libc::c_int = 0;
+
+    // SAFETY: `input` points at `msg`, which outlives the call and is only read;
+    // `output` is filled by GSS and released below.
+    let major_status = unsafe {
+        ffi::gss_wrap(
+            &mut minor_status,
+            ctx_handle,
+            i32::from(conf_req),
+            ffi::GSS_C_QOP_DEFAULT,
+            &mut input,
+            &mut conf_state,
+            &mut output,
+        )
+    };
+
+    if major_status != ffi::GSS_S_COMPLETE {
+        return Err(gss_error(major_status, minor_status));
+    }
+
+    Ok((take_gss_buffer(&mut output), conf_state))
+}
+
+/// Unwrap one `gss_wrap` token, requiring Privacy if `require_conf`.
+///
+/// Returns the plaintext. On a confidentiality failure the plaintext is wiped
+/// and [`Error::ConfidentialityNotProvided`] is returned.
+///
+/// # Errors
+///
+/// Returns an error if the context has no handle, `gss_unwrap` fails (for
+/// example integrity check failure), or the token was not encrypted while
+/// `require_conf` is set.
+pub(crate) fn unwrap_token(
+    ctx: &mut ClientCtx,
+    token: &[u8],
+    require_conf: bool,
+) -> Result<Vec<u8>> {
+    let ctx_handle = raw_handle(ctx)?;
+
+    let mut input = ffi::gss_buffer_desc {
+        length: token.len(),
+        value: token.as_ptr().cast_mut().cast(),
+    };
+    let mut output = ffi::gss_buffer_desc {
+        length: 0,
+        value: ptr::null_mut(),
+    };
+    let mut minor_status: ffi::OM_uint32 = 0;
+    let mut conf_state: libc::c_int = 0;
+    let mut qop_state: ffi::gss_qop_t = 0;
+
+    // SAFETY: `input` points at `token`, which outlives the call and is only
+    // read; `output` is filled by GSS and released below.
+    let major_status = unsafe {
+        ffi::gss_unwrap(
+            &mut minor_status,
+            ctx_handle,
+            &mut input,
+            &mut output,
+            &mut conf_state,
+            &mut qop_state,
+        )
+    };
+
+    if major_status != ffi::GSS_S_COMPLETE {
+        return Err(gss_error(major_status, minor_status));
+    }
+
+    let mut plaintext = take_gss_buffer(&mut output);
+    if let Err(e) = require_conf_applied(require_conf, conf_state, "gss_unwrap") {
+        plaintext.zeroize();
+        return Err(e);
+    }
+    Ok(plaintext)
+}
+
+/// Copy a GSS-allocated buffer into a `Vec`, wiping and releasing the original.
+fn take_gss_buffer(buf: &mut ffi::gss_buffer_desc) -> Vec<u8> {
+    let out = if buf.value.is_null() || buf.length == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: GSS reports `length` valid bytes at `value`.
+        unsafe { slice::from_raw_parts(buf.value.cast::<u8>(), buf.length) }.to_vec()
+    };
+
+    if !buf.value.is_null() {
+        // SAFETY: the buffer was allocated by GSS and may hold plaintext.
+        unsafe {
+            slice::from_raw_parts_mut(buf.value.cast::<u8>(), buf.length).zeroize();
+            let mut minor_status: ffi::OM_uint32 = 0;
+            ffi::gss_release_buffer(&mut minor_status, buf);
+        }
+    }
+    out
+}
+
+/// Unwrap a token given as separate header, data and trailer fragments
+///
+/// If `require_conf` is set the data must have been encrypted; an
+/// integrity-only token is rejected with [`Error::ConfidentialityNotProvided`].
 ///
 /// # Errors
 ///
 /// Returns an error if:
 /// - The GSS context is not established
 /// - The unwrap operation fails (e.g., integrity check failure)
-/// - The token format is invalid
+/// - `require_conf` is set but the token was not encrypted
 #[cfg_attr(feature = "trace", instrument(
     target = "kerbsec::iov",
     level = "debug",
@@ -288,7 +408,8 @@ fn wrap_iov_fallback(ctx: &mut ClientCtx, pdu: &[u8], conf_req: bool) -> Result<
     fields(
         header_len = header.len(),
         data_len = data.len(),
-        trailer_len = trailer.len()
+        trailer_len = trailer.len(),
+        require_conf
     )
 ))]
 pub fn unwrap_iov_real(
@@ -296,37 +417,37 @@ pub fn unwrap_iov_real(
     header: &[u8],
     data: &[u8],
     trailer: &[u8],
+    require_conf: bool,
 ) -> Result<Vec<u8>> {
-    // IOV is only available on Linux - use fallback on other platforms
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(all(target_os = "linux", feature = "iov")))]
     {
         #[cfg(feature = "trace")]
         warn!(target: "kerbsec::iov", "IOV unwrap not available on this platform, using fallback");
 
-        unwrap_iov_fallback(ctx, header, data, trailer)
+        unwrap_iov_fallback(ctx, header, data, trailer, require_conf)
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "iov"))]
     {
-        unwrap_iov_native(ctx, header, data, trailer)
+        unwrap_iov_native(ctx, header, data, trailer, require_conf)
     }
 }
 
 /// Native IOV unwrap implementation for Linux
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "iov"))]
 fn unwrap_iov_native(
     ctx: &mut ClientCtx,
     header: &[u8],
     data: &[u8],
     trailer: &[u8],
+    require_conf: bool,
 ) -> Result<Vec<u8>> {
-    // SAFETY: We verify the context handle is non-null in get_raw_ctx_handle
-    let ctx_handle = unsafe { get_raw_ctx_handle(ctx) };
+    let ctx_handle = raw_handle(ctx)?;
 
     // Reconstruct IOV buffers from the provided slices
     let mut header_buf = header.to_vec();
     let mut data_buf = data.to_vec();
-    let mut padding_buf: Vec<u8> = Vec::new(); // Padding is typically empty for unwrap
+    let mut padding_buf: Vec<u8> = Vec::new(); // wrap_iov_native rejects padding
     let mut trailer_buf = trailer.to_vec();
 
     let mut iov_descs = [
@@ -364,7 +485,8 @@ fn unwrap_iov_native(
     let mut conf_state: libc::c_int = 0;
     let mut qop_state: ffi::gss_qop_t = 0;
 
-    // SAFETY: All buffers are valid and properly initialized
+    // SAFETY: All buffers are valid and properly initialized; `ctx_handle` is
+    // owned by `ctx`, which is mutably borrowed for the call.
     let major_status = unsafe {
         ffi::gss_unwrap_iov(
             &mut minor_status,
@@ -384,7 +506,14 @@ fn unwrap_iov_native(
             minor = format_args!("{:#x}", minor_status),
             "gss_unwrap_iov failed"
         );
+        // Decryption is in place, so a failed call may leave partial plaintext.
+        data_buf.zeroize();
         return Err(gss_error(major_status, minor_status));
+    }
+
+    if let Err(e) = require_conf_applied(require_conf, conf_state, "gss_unwrap_iov") {
+        data_buf.zeroize();
+        return Err(e);
     }
 
     #[cfg(feature = "trace")]
@@ -400,15 +529,14 @@ fn unwrap_iov_native(
 }
 
 /// Fallback unwrap implementation for platforms without IOV support
-#[cfg(not(target_os = "linux"))]
+#[cfg_attr(all(target_os = "linux", feature = "iov"), allow(dead_code))]
 fn unwrap_iov_fallback(
     ctx: &mut ClientCtx,
     header: &[u8],
     data: &[u8],
     trailer: &[u8],
+    require_conf: bool,
 ) -> Result<Vec<u8>> {
-    use libgssapi::context::SecurityContext;
-
     // Reconstruct the complete token by concatenating header + data + trailer
     // This is the inverse of what wrap_iov_fallback produces
     let mut token = Vec::with_capacity(header.len() + data.len() + trailer.len());
@@ -416,26 +544,25 @@ fn unwrap_iov_fallback(
     token.extend_from_slice(data);
     token.extend_from_slice(trailer);
 
-    // Use regular unwrap
-    let unwrapped = ctx
-        .unwrap(&token)
-        .map_err(|e| Error::Iov(format!("GSS unwrap failed: {e}")))?;
+    let plaintext = unwrap_token(ctx, &token, require_conf)?;
 
     #[cfg(feature = "trace")]
     warn!(
         target: "kerbsec::iov",
         token_len = token.len(),
-        unwrapped_len = unwrapped.len(),
+        unwrapped_len = plaintext.len(),
         "fallback unwrap: reassembled token"
     );
 
-    Ok(unwrapped.to_vec())
+    Ok(plaintext)
 }
 
 /// Get accurate wrap size limit using GSS-API
 ///
 /// Given a maximum output (wrapped) size, calculates the maximum input
-/// message size that can be wrapped without exceeding the limit.
+/// message size that can be wrapped without exceeding the limit. Uses
+/// `gss_wrap_size_limit`, which is part of core GSS-API and available on all
+/// platforms, so the answer accounts for the negotiated enctype.
 ///
 /// # Arguments
 ///
@@ -456,62 +583,45 @@ fn unwrap_iov_fallback(
     )
 )]
 pub fn wrap_size_limit_real(ctx: &ClientCtx, conf_req: bool, max_wrapped: usize) -> Result<usize> {
-    // Use conservative estimates on non-Linux platforms
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = ctx; // Suppress unused variable warning
-                     // Return conservative estimate based on typical GSS overhead
-        Ok(if conf_req {
-            max_wrapped.saturating_sub(60) // Privacy: header + encryption padding + trailer
-        } else {
-            max_wrapped.saturating_sub(32) // Integrity: header + MIC
-        })
-    }
+    let ctx_handle = raw_handle(ctx)?;
 
-    #[cfg(target_os = "linux")]
-    {
-        // SAFETY: We verify the context handle is non-null in get_raw_ctx_handle
-        let ctx_handle = unsafe { get_raw_ctx_handle(ctx) };
+    let mut minor_status: ffi::OM_uint32 = 0;
+    let mut max_input_size: ffi::OM_uint32 = 0;
 
-        let mut minor_status: ffi::OM_uint32 = 0;
-        let mut max_input_size: ffi::OM_uint32 = 0;
+    // SAFETY: All pointers are valid; `ctx_handle` is owned by `ctx`.
+    let major_status = unsafe {
+        ffi::gss_wrap_size_limit(
+            &mut minor_status,
+            ctx_handle,
+            i32::from(conf_req),
+            ffi::GSS_C_QOP_DEFAULT,
+            ffi::OM_uint32::try_from(max_wrapped).unwrap_or(ffi::OM_uint32::MAX),
+            &mut max_input_size,
+        )
+    };
 
-        // SAFETY: All pointers are valid
-        let major_status = unsafe {
-            ffi::gss_wrap_size_limit(
-                &mut minor_status,
-                ctx_handle,
-                i32::from(conf_req),
-                ffi::GSS_C_QOP_DEFAULT,
-                max_wrapped as ffi::OM_uint32,
-                &mut max_input_size,
-            )
-        };
-
-        if major_status != ffi::GSS_S_COMPLETE {
-            #[cfg(feature = "trace")]
-            error!(
-                target: "kerbsec::iov",
-                major = format_args!("{:#x}", major_status),
-                minor = format_args!("{:#x}", minor_status),
-                "gss_wrap_size_limit failed"
-            );
-            return Err(gss_error(major_status, minor_status));
-        }
-
+    if major_status != ffi::GSS_S_COMPLETE {
         #[cfg(feature = "trace")]
-        debug!(
+        error!(
             target: "kerbsec::iov",
-            max_input = max_input_size,
-            "wrap_size_limit calculated"
+            major = format_args!("{:#x}", major_status),
+            minor = format_args!("{:#x}", minor_status),
+            "gss_wrap_size_limit failed"
         );
-
-        Ok(max_input_size as usize)
+        return Err(gss_error(major_status, minor_status));
     }
+
+    #[cfg(feature = "trace")]
+    debug!(
+        target: "kerbsec::iov",
+        max_input = max_input_size,
+        "wrap_size_limit calculated"
+    );
+
+    Ok(max_input_size as usize)
 }
 
 /// Convert GSS error to our Error type
-#[cfg(target_os = "linux")]
 fn gss_error(major: ffi::OM_uint32, minor: ffi::OM_uint32) -> Error {
     let text = display_gss_status(major, minor);
 
@@ -528,7 +638,6 @@ fn gss_error(major: ffi::OM_uint32, minor: ffi::OM_uint32) -> Error {
 }
 
 /// Get human-readable error message from GSS status codes
-#[cfg(target_os = "linux")]
 fn display_gss_status(major: ffi::OM_uint32, minor: ffi::OM_uint32) -> String {
     let mut messages = Vec::new();
 
@@ -555,7 +664,6 @@ fn display_gss_status(major: ffi::OM_uint32, minor: ffi::OM_uint32) -> String {
 ///
 /// Converts a GSS-API status code to a human-readable string.
 /// Properly releases the GSS buffer to avoid memory leaks.
-#[cfg(target_os = "linux")]
 fn display_status_code(code: ffi::OM_uint32, status_type: libc::c_int) -> Option<String> {
     // SAFETY: All pointers are valid and properly initialized
     unsafe {

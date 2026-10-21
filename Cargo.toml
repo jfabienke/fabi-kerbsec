@@ -51,6 +51,10 @@ ring = { version = "0.17", optional = true }
 libgssapi = { version = "=0.9.1", default-features = false }
 libc = "0.2"
 
+# libgssapi 0.9.1 plus one accessor (ClientCtx::raw_ctx); see vendor/libgssapi/README.md
+[patch.crates-io]
+libgssapi = { path = "vendor/libgssapi" }
+
 [dev-dependencies]
 proptest = "1.4"
 rstest = "0.18"
