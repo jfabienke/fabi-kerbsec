@@ -103,8 +103,8 @@ The library implements a layered architecture with platform abstractions:
 The library implements DCE/RPC-specific Kerberos semantics:
 
 1. **DCE-Style Flag**: Manually applies GSS_C_DCE_STYLE (0x1000) via bitwise operations
-   - Disables GSS sequence number checking (DCE has its own)
-   - Allows out-of-order message processing
+   - Selects the DCE/RPC three-leg handshake and relaxed IOV padding/trailer rules
+   - Does NOT disable sequence/replay detection (those flags are still requested)
 
 2. **IOV Operations**: Zero-copy message protection on Linux
    - Header (16-32 bytes) + Data (unchanged for integrity) + Trailer (12-16 bytes)

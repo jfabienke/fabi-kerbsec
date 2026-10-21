@@ -54,6 +54,8 @@ libc = "0.2"
 libgssapi = { path = "vendor/libgssapi" }
 
 [dev-dependencies]
+# Header-derived constants/layouts that tests/ffi_abi.rs compares our hand-written FFI against
+libgssapi-sys = "0.3.1"
 proptest = "1.4"
 rstest = "0.18"
 pretty_assertions = "1.4"

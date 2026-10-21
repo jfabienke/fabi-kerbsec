@@ -28,9 +28,8 @@ let config = KerberosConfig::builder()
 ```
 
 **When enabled (default):**
-- Disables GSS sequence number checking (DCE/RPC has its own)
-- Allows out-of-order message processing
-- Prevents GSS replay cache from interfering with DCE/RPC
+- Selects the DCE/RPC three-leg handshake and relaxed IOV padding/trailer rules
+- Does not disable sequence/replay detection
 
 **When to disable:**
 - Non-DCE/RPC Kerberos applications

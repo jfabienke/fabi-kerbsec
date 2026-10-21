@@ -17,10 +17,12 @@ use std::time::Duration;
 // These are standard GSS-API flags defined in RFC 2744
 
 /// `GSS_C_DCE_STYLE` flag (0x1000) - critical for DCE/RPC semantics
-/// This flag is not exposed by libgssapi, but is required for:
-/// - Disabling GSS sequence number checking (DCE has its own)
-/// - Allowing out-of-order message processing
-/// - Preventing GSS replay cache from interfering with DCE/RPC
+/// This flag is not exposed by libgssapi's `CtxFlags` names, but is required for:
+/// - The three-leg handshake (the initiator sends a final token after the AP-REP)
+/// - `gss_wrap_iov` without PADDING/TRAILER buffers, as DCE/RPC frames its PDUs
+///
+/// It does not switch off sequence or replay detection; those are requested
+/// separately (see `initial_token`).
 const GSS_C_DCE_STYLE: u32 = 0x1000;
 
 /// `GSS_C_DELEG_FLAG` (0x01) - allows server to act on client's behalf
@@ -156,8 +158,10 @@ impl GssContext {
         }
 
         flags |= CtxFlags::GSS_C_INTEG_FLAG; // Always required
-        flags |= CtxFlags::GSS_C_SEQUENCE_FLAG; // DCE sequence detection
-        flags |= CtxFlags::GSS_C_REPLAY_FLAG; // DCE replay detection
+                                             // Sequence and replay detection stay on alongside DCE_STYLE: they protect the
+                                             // message stream, and DCE_STYLE only changes handshake/buffer-layout rules.
+        flags |= CtxFlags::GSS_C_SEQUENCE_FLAG;
+        flags |= CtxFlags::GSS_C_REPLAY_FLAG;
 
         // Enable delegation if configured
         if self.config.enable_delegation {
@@ -176,13 +180,9 @@ impl GssContext {
 
         // Add GSS_C_DCE_STYLE flag when configured (default: true for DCE/RPC)
         if self.config.enable_dce_style {
-            // DCE_STYLE (0x1000) is critical for proper DCE/RPC semantics:
-            // - Disables GSS sequence number checking (DCE has its own)
-            // - Allows out-of-order message processing
-            // - Prevents GSS replay cache from interfering with DCE/RPC
-            //
-            // Since libgssapi doesn't expose DCE_STYLE in CtxFlags,
-            // we need to OR it in manually using from_bits_retain
+            // DCE_STYLE (0x1000) selects the DCE/RPC three-leg handshake and its
+            // IOV buffer rules. libgssapi's CtxFlags has no name for it, so OR it
+            // in with from_bits_retain.
             let flags_with_dce = flags.bits() | GSS_C_DCE_STYLE;
             flags = CtxFlags::from_bits_retain(flags_with_dce);
 
@@ -408,8 +408,9 @@ fn apply_cred_env(var: &str, wanted: &str) -> Result<()> {
     match std::env::var_os(var) {
         Some(current) if current == std::ffi::OsStr::new(wanted) => Ok(()),
         Some(current) => Err(Error::Config(format!(
-            "{var} is already set to {current:?} for this process, which conflicts with \
-             the configured value {wanted:?}; GSS-API credentials are process-global"
+            "{var} is already set to '{}' for this process, which conflicts with the \
+             configured value '{wanted}'; GSS-API credentials are process-global",
+            current.to_string_lossy()
         ))),
         None => {
             // SAFETY: access is serialized against other kerbsec callers by

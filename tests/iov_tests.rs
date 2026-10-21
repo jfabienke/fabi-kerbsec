@@ -75,25 +75,4 @@ mod iov_tests {
         assert!(max_msg_privacy < max_wrapped);
         assert!(max_msg_privacy < max_msg_integrity); // Privacy has more overhead
     }
-
-    #[test]
-    fn test_dce_style_flag_value() {
-        // This test documents that GSS_C_DCE_STYLE (0x1000) is now properly
-        // applied in our context creation when IOV is enabled
-        const GSS_C_DCE_STYLE: u32 = 0x1000;
-        assert_eq!(GSS_C_DCE_STYLE, 0x1000);
-    }
-
-    #[test]
-    fn test_iov_buffer_types() {
-        // Verify IOV buffer type constants are correct
-        #[cfg(feature = "iov")]
-        {
-            use kerbsec::ffi;
-            assert_eq!(ffi::GSS_IOV_BUFFER_TYPE_DATA, 1);
-            assert_eq!(ffi::GSS_IOV_BUFFER_TYPE_HEADER, 2);
-            assert_eq!(ffi::GSS_IOV_BUFFER_TYPE_TRAILER, 7);
-            assert_eq!(ffi::GSS_IOV_BUFFER_TYPE_PADDING, 9);
-        }
-    }
 }

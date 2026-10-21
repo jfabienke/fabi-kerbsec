@@ -216,9 +216,8 @@ pub struct KerberosConfig {
     /// Enable `GSS_C_DCE_STYLE` flag for DCE/RPC compatibility
     ///
     /// When enabled, this flag:
-    /// - Disables GSS sequence number checking (DCE has its own)
-    /// - Allows out-of-order message processing
-    /// - Prevents GSS replay cache from interfering with DCE/RPC
+    /// - Selects the DCE/RPC three-leg handshake and relaxed IOV padding/trailer rules
+    /// - Does not disable sequence/replay detection
     ///
     /// Default: true (recommended for DCE/RPC)
     pub enable_dce_style: bool,
@@ -367,9 +366,8 @@ impl KerberosConfigBuilder {
     /// Enable or disable `GSS_C_DCE_STYLE` flag
     ///
     /// When enabled (default), this flag:
-    /// - Disables GSS sequence number checking (DCE has its own)
-    /// - Allows out-of-order message processing
-    /// - Prevents GSS replay cache from interfering with DCE/RPC
+    /// - Selects the DCE/RPC three-leg handshake and relaxed IOV padding/trailer rules
+    /// - Does not disable sequence/replay detection
     ///
     /// You should only disable this if you're not using DCE/RPC.
     #[must_use]

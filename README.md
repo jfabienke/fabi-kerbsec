@@ -198,9 +198,10 @@ The implementation automatically detects the platform and uses the best availabl
 
 ### GSS_C_DCE_STYLE Flag
 The GSS_C_DCE_STYLE flag (0x1000) is runtime-configurable via the `enable_dce_style` configuration option (defaults to true). Since libgssapi 0.9.1 doesn't expose it in CtxFlags, we manually apply it using bitwise operations. This flag is critical for:
-- Disabling GSS sequence number checking (DCE has its own)
-- Allowing out-of-order message processing
-- Preventing GSS replay cache from interfering with DCE/RPC
+- The DCE/RPC three-leg handshake
+- Relaxed IOV padding/trailer rules for DCE/RPC PDU framing
+
+It does not disable sequence or replay detection; those are still requested.
 
 ```rust
 // Enable DCE-style (default for DCE/RPC compatibility)

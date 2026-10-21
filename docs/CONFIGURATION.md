@@ -56,8 +56,8 @@ let config = KerberosConfig::builder()
 ```
 
 **Effects of DCE-style:**
-- Disables GSS sequence number checking (DCE has its own)
-- Allows out-of-order message processing
+- Selects the DCE/RPC three-leg handshake and relaxed IOV padding/trailer rules
+- Does not disable sequence/replay detection
 - Modifies replay detection to work with DCE/RPC
 
 **When to use:**
