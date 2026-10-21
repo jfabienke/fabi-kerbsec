@@ -10,7 +10,7 @@ use libgssapi::context::{ClientCtx, CtxFlags, SecurityContext};
 use libgssapi::credential::{Cred, CredUsage};
 use libgssapi::name::Name;
 use libgssapi::oid::{GSS_MECH_KRB5, GSS_NT_KRB5_PRINCIPAL};
-use std::sync::Once;
+use std::sync::Mutex;
 use std::time::Duration;
 
 // GSS context flag constants
@@ -38,9 +38,8 @@ const GSS_C_INTEG_FLAG: u32 = 0x20;
 #[cfg(feature = "trace")]
 use tracing::{debug, error, info, instrument, warn};
 
-/// Thread-safe environment variable initialization
-static ENV_INIT: Once = Once::new();
-static KEYTAB_ENV_INIT: Once = Once::new();
+/// Serializes the check-and-set of the process-global credential variables
+static CRED_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 /// GSS-API context wrapper for Unix platforms
 pub struct GssContext {
@@ -54,61 +53,25 @@ pub struct GssContext {
 impl GssContext {
     /// Create a new GSS context with the given configuration
     ///
-    /// # Thread Safety
+    /// # Credential selection
     ///
-    /// The `KRB5CCNAME` environment variable is set only once per process using
-    /// `std::sync::Once`. Subsequent calls will not modify the environment.
-    /// This is safe because:
-    /// 1. The env var is only set once, atomically
-    /// 2. We only set it if it wasn't already set
-    /// 3. After the first context creation, all contexts use the same ccache
+    /// MIT Kerberos selects credentials from process-global environment
+    /// variables, so a configured `kccache` / `keytab` is applied by setting
+    /// `KRB5CCNAME` / `KRB5_CLIENT_KTNAME`. That means all contexts in a process
+    /// share one credential source: if the variable is already set to a
+    /// *different* value (by the environment or an earlier context), this returns
+    /// an error rather than silently authenticating as the wrong principal.
     ///
-    /// If you need different contexts to use different credential caches,
-    /// set `KRB5CCNAME` before creating the first context, or use the
-    /// `KRB5_CLIENT_KTNAME` mechanism for service accounts.
+    /// # Errors
+    ///
+    /// Returns [`Error::Config`] if the configured credential cache or keytab
+    /// conflicts with the one already in use by this process.
     pub fn new(config: KerberosConfig) -> Result<Self> {
-        // Thread-safe environment variable initialization
-        // SAFETY: std::sync::Once ensures this runs exactly once per process
-
-        // Set credential cache environment variable
         if let Some(ref ccache) = config.kccache {
-            let ccache_clone = ccache.clone();
-            ENV_INIT.call_once(|| {
-                // Only set if not already set by the environment
-                if std::env::var("KRB5CCNAME").is_err() {
-                    // SAFETY: This is safe because:
-                    // 1. We're inside Once::call_once, so this runs exactly once
-                    // 2. No other thread can be modifying env vars at this point
-                    //    (or if they are, it's a program-level bug)
-                    // 3. The value is valid UTF-8 (came from String)
-                    unsafe {
-                        std::env::set_var("KRB5CCNAME", &ccache_clone);
-                    }
-                    #[cfg(feature = "trace")]
-                    debug!(target: "kerbsec::gss", ccache = %ccache_clone, "set KRB5CCNAME (once)");
-                } else {
-                    #[cfg(feature = "trace")]
-                    debug!(target: "kerbsec::gss", "KRB5CCNAME already set, not overriding");
-                }
-            });
+            apply_cred_env("KRB5CCNAME", ccache)?;
         }
-
-        // Set keytab environment variable for service account authentication
         if let Some(ref keytab) = config.keytab {
-            let keytab_clone = keytab.clone();
-            KEYTAB_ENV_INIT.call_once(|| {
-                // KRB5_CLIENT_KTNAME is the standard env var for client keytabs
-                if std::env::var("KRB5_CLIENT_KTNAME").is_err() {
-                    unsafe {
-                        std::env::set_var("KRB5_CLIENT_KTNAME", &keytab_clone);
-                    }
-                    #[cfg(feature = "trace")]
-                    debug!(target: "kerbsec::gss", keytab = %keytab_clone, "set KRB5_CLIENT_KTNAME (once)");
-                } else {
-                    #[cfg(feature = "trace")]
-                    debug!(target: "kerbsec::gss", "KRB5_CLIENT_KTNAME already set, not overriding");
-                }
-            });
+            apply_cred_env("KRB5_CLIENT_KTNAME", keytab)?;
         }
 
         Ok(Self {
@@ -431,6 +394,36 @@ impl GssContext {
     }
 }
 
+/// Make `var` (a Kerberos credential-source variable) equal `wanted`
+///
+/// Sets it if unset; accepts it if already equal; otherwise errors, because
+/// GSS-API would use the other value for every context in the process.
+fn apply_cred_env(var: &str, wanted: &str) -> Result<()> {
+    // A poisoned lock only means another thread panicked mid-check; the guarded
+    // data is `()`, so continuing is sound.
+    let _guard = CRED_ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    match std::env::var_os(var) {
+        Some(current) if current == std::ffi::OsStr::new(wanted) => Ok(()),
+        Some(current) => Err(Error::Config(format!(
+            "{var} is already set to {current:?} for this process, which conflicts with \
+             the configured value {wanted:?}; GSS-API credentials are process-global"
+        ))),
+        None => {
+            // SAFETY: access is serialized against other kerbsec callers by
+            // CRED_ENV_LOCK. Mutating the environment is still unsound if unrelated
+            // threads read it concurrently, so set the variable before starting
+            // threads (or in the launching environment) in multi-threaded programs.
+            unsafe { std::env::set_var(var, wanted) };
+            #[cfg(feature = "trace")]
+            debug!(target: "kerbsec::gss", var, value = wanted, "set credential environment variable");
+            Ok(())
+        }
+    }
+}
+
 /// The service principal to authenticate to: `spn[@realm]`
 ///
 /// The SPN is the configured override, or `HOST/<fqdn>`. The configured realm is
@@ -521,5 +514,26 @@ mod tests {
             target_principal(&config(Some("cifs/fs.other.example@OTHER.EXAMPLE"))),
             "cifs/fs.other.example@OTHER.EXAMPLE"
         );
+    }
+
+    #[test]
+    fn cred_env_is_set_once_and_conflicts_are_errors() {
+        // A variable unique to this test so parallel tests don't interact with it
+        const VAR: &str = "KERBSEC_TEST_CRED_ENV";
+        std::env::remove_var(VAR);
+
+        apply_cred_env(VAR, "FILE:/tmp/a").expect("first set");
+        assert_eq!(std::env::var(VAR).as_deref(), Ok("FILE:/tmp/a"));
+        apply_cred_env(VAR, "FILE:/tmp/a").expect("same value is fine");
+
+        let err = apply_cred_env(VAR, "FILE:/tmp/b").expect_err("different value conflicts");
+        assert!(matches!(err, Error::Config(_)), "{err:?}");
+        assert_eq!(
+            std::env::var(VAR).as_deref(),
+            Ok("FILE:/tmp/a"),
+            "unchanged"
+        );
+
+        std::env::remove_var(VAR);
     }
 }

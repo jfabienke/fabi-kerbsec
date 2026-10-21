@@ -320,7 +320,8 @@ pub struct KerberosConfig {
     ///
     /// # Environment Variable
     ///
-    /// If not set, honors `KRB5_CLIENT_KTNAME` or `KRB5_KTNAME` environment variables.
+    /// If not set, honors the `KRB5_CLIENT_KTNAME` environment variable. (`KRB5_KTNAME` is the
+    /// *acceptor* keytab and is deliberately not used for client credentials.)
     pub keytab: Option<String>,
     /// Optional channel bindings for enhanced security
     pub channel_bindings: Option<ChannelBindings>,
@@ -565,8 +566,7 @@ impl KerberosConfigBuilder {
             kccache: self.kccache.or_else(|| std::env::var("KRB5CCNAME").ok()),
             keytab: self
                 .keytab
-                .or_else(|| std::env::var("KRB5_CLIENT_KTNAME").ok())
-                .or_else(|| std::env::var("KRB5_KTNAME").ok()),
+                .or_else(|| std::env::var("KRB5_CLIENT_KTNAME").ok()),
             channel_bindings: self.channel_bindings,
             enable_dce_style: self.enable_dce_style,
             enable_delegation: self.enable_delegation,
@@ -637,8 +637,7 @@ impl KerberosConfigBuilder {
             kccache: self.kccache.or_else(|| std::env::var("KRB5CCNAME").ok()),
             keytab: self
                 .keytab
-                .or_else(|| std::env::var("KRB5_CLIENT_KTNAME").ok())
-                .or_else(|| std::env::var("KRB5_KTNAME").ok()),
+                .or_else(|| std::env::var("KRB5_CLIENT_KTNAME").ok()),
             channel_bindings: self.channel_bindings,
             enable_dce_style: self.enable_dce_style,
             enable_delegation: self.enable_delegation,

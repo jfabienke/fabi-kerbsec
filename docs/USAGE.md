@@ -339,7 +339,8 @@ kerbsec respects standard Kerberos environment variables:
 |-----------------|---------------------------|-----------------------|
 | `KRB5CCNAME`    | Credential cache location | `/tmp/krb5cc_1000`    |
 | `KRB5_CONFIG`   | Config file path          | `/etc/krb5.conf`      |
-| `KRB5_KTNAME`   | Keytab file location      | `/etc/krb5.keytab`    |
+| `KRB5_CLIENT_KTNAME` | Client keytab (service accounts) | `/etc/krb5.keytab` |
+| `KRB5_KTNAME`   | Acceptor (server) keytab; not used by kerbsec | `/etc/krb5.keytab` |
 | `KRB5RCACHEDIR` | Replay cache directory    | `/var/tmp`            |
 | `KRB5_TRACE`    | Debug trace file          | `/tmp/krb5_trace.log` |
 | `GSS_USE_IOV`   | Force IOV usage           | `1`                   |
