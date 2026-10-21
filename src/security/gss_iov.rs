@@ -662,46 +662,85 @@ fn display_gss_status(major: ffi::OM_uint32, minor: ffi::OM_uint32) -> String {
 
 /// Display a single status code
 ///
-/// Converts a GSS-API status code to a human-readable string.
-/// Properly releases the GSS buffer to avoid memory leaks.
+/// Converts a GSS-API status code to a human-readable string. A major status
+/// can carry several conditions (a routine error plus supplementary bits), which
+/// `gss_display_status` returns one per call while `message_context` is
+/// non-zero; all of them are collected and joined. Every GSS buffer is released.
 fn display_status_code(code: ffi::OM_uint32, status_type: libc::c_int) -> Option<String> {
-    // SAFETY: All pointers are valid and properly initialized
-    unsafe {
+    // Guards against an implementation that never clears `message_context`
+    const MAX_MESSAGES: usize = 16;
+
+    let mut parts = Vec::new();
+    let mut message_context: ffi::OM_uint32 = 0;
+
+    for _ in 0..MAX_MESSAGES {
         let mut minor_status: ffi::OM_uint32 = 0;
-        let mut message_context: ffi::OM_uint32 = 0;
         let mut status_string = ffi::gss_buffer_desc {
             length: 0,
             value: ptr::null_mut(),
         };
 
-        let major = ffi::gss_display_status(
-            &mut minor_status,
-            code,
-            status_type,
-            ffi::GSS_C_NO_OID,
-            &mut message_context,
-            &mut status_string,
-        );
+        // SAFETY: All pointers are valid and properly initialized
+        let major = unsafe {
+            ffi::gss_display_status(
+                &mut minor_status,
+                code,
+                status_type,
+                ffi::GSS_C_NO_OID,
+                &mut message_context,
+                &mut status_string,
+            )
+        };
 
         if major != ffi::GSS_S_COMPLETE {
             // No buffer was allocated on failure, nothing to release
-            return None;
+            break;
         }
 
-        // Extract the message if the buffer contains valid data
-        let result = if !status_string.value.is_null() && status_string.length > 0 {
-            let bytes =
-                slice::from_raw_parts(status_string.value.cast::<u8>(), status_string.length);
-            Some(String::from_utf8_lossy(bytes).into_owned())
-        } else {
-            None
-        };
+        if !status_string.value.is_null() && status_string.length > 0 {
+            // SAFETY: GSS reports `length` valid bytes at `value`
+            let bytes = unsafe {
+                slice::from_raw_parts(status_string.value.cast::<u8>(), status_string.length)
+            };
+            parts.push(String::from_utf8_lossy(bytes).into_owned());
+        }
 
-        // IMPORTANT: Always release the buffer, even if we didn't extract a message.
-        // GSS may have allocated memory that needs to be freed.
-        // This fixes the memory leak when status_string.value is null or length is 0.
-        ffi::gss_release_buffer(&mut minor_status, &mut status_string);
+        // Always release the buffer, even if it held no message: GSS may still
+        // have allocated it.
+        // SAFETY: the buffer was filled by gss_display_status above
+        unsafe { ffi::gss_release_buffer(&mut minor_status, &mut status_string) };
 
-        result
+        if message_context == 0 {
+            break;
+        }
+    }
+
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("; "))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_status_reports_every_condition_in_a_major_code() {
+        // A routine error plus a supplementary bit: two messages from GSS
+        let bad_sig = 6 << 16; // GSS_S_BAD_SIG
+        let duplicate = 1 << 1; // GSS_S_DUPLICATE_TOKEN
+        let single = display_status_code(bad_sig, ffi::GSS_C_GSS_CODE).expect("message");
+        let both = display_status_code(bad_sig | duplicate, ffi::GSS_C_GSS_CODE).expect("message");
+
+        assert!(
+            both.starts_with(&single),
+            "{both:?} should start with {single:?}"
+        );
+        assert!(
+            both.len() > single.len() + 2,
+            "supplementary message missing: {both:?}"
+        );
     }
 }

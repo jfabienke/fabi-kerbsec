@@ -143,7 +143,7 @@ impl GssContext {
         // Note: libgssapi 0.9.1 API changed - parameter order is different
         let cred = Cred::acquire(
             None,
-            Some(Duration::from_secs(300)),
+            Some(Duration::from_mins(5)),
             CredUsage::Initiate,
             None, // Use default mechanism set
         )

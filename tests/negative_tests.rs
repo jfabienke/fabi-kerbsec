@@ -62,8 +62,7 @@ mod tests {
             // SPN validation should reject invalid formats early
             assert!(
                 config.is_err(),
-                "Expected error for invalid SPN '{}', but got Ok",
-                invalid_spn
+                "Expected error for invalid SPN '{invalid_spn}', but got Ok"
             );
         }
 

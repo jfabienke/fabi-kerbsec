@@ -54,7 +54,7 @@ fn concat(w: &kerbsec::IovWrap) -> Vec<u8> {
 }
 
 #[test]
-#[ignore] // Requires a KDC; run scripts/e2e-kdc.sh
+#[ignore = "requires a KDC; run scripts/e2e-kdc.sh"]
 fn privacy_roundtrip_both_directions() {
     let (mut client, mut server) = establish(AuthLevel::Privacy);
 
@@ -69,7 +69,7 @@ fn privacy_roundtrip_both_directions() {
 }
 
 #[test]
-#[ignore] // Requires a KDC; run scripts/e2e-kdc.sh
+#[ignore = "requires a KDC; run scripts/e2e-kdc.sh"]
 fn privacy_context_rejects_integrity_only_token() {
     let (mut client, mut server) = establish(AuthLevel::Privacy);
 
@@ -83,7 +83,7 @@ fn privacy_context_rejects_integrity_only_token() {
 }
 
 #[test]
-#[ignore] // Requires a KDC; run scripts/e2e-kdc.sh
+#[ignore = "requires a KDC; run scripts/e2e-kdc.sh"]
 fn integrity_context_accepts_both_token_kinds() {
     let (mut client, mut server) = establish(AuthLevel::Integrity);
 
@@ -94,7 +94,7 @@ fn integrity_context_accepts_both_token_kinds() {
 }
 
 #[test]
-#[ignore] // Requires a KDC; run scripts/e2e-kdc.sh
+#[ignore = "requires a KDC; run scripts/e2e-kdc.sh"]
 fn per_call_privacy_works_on_integrity_context() {
     let (mut client, mut server) = establish(AuthLevel::Integrity);
 
@@ -118,7 +118,7 @@ fn per_call_privacy_works_on_integrity_context() {
 }
 
 #[test]
-#[ignore] // Requires a KDC; run scripts/e2e-kdc.sh
+#[ignore = "requires a KDC; run scripts/e2e-kdc.sh"]
 fn negotiated_flags_include_integrity_conf_mutual() {
     let (_client, mut server) = establish(AuthLevel::Privacy);
     let flags = server.flags().expect("flags");
@@ -128,7 +128,7 @@ fn negotiated_flags_include_integrity_conf_mutual() {
 }
 
 #[test]
-#[ignore] // Requires a KDC; run scripts/e2e-kdc.sh
+#[ignore = "requires a KDC; run scripts/e2e-kdc.sh"]
 fn wrap_size_limit_uses_the_mechanism() {
     let (client, _server) = establish(AuthLevel::Privacy);
     let limit = client.wrap_size_limit(1024, true);
@@ -138,7 +138,7 @@ fn wrap_size_limit_uses_the_mechanism() {
 }
 
 #[test]
-#[ignore] // Requires a KDC; run scripts/e2e-kdc.sh
+#[ignore = "requires a KDC; run scripts/e2e-kdc.sh"]
 fn handshake_state_is_enforced() {
     let mut client = Context::new(config(AuthLevel::Privacy)).expect("context");
 

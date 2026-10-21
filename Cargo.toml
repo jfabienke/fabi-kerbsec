@@ -96,3 +96,6 @@ significant_drop_tightening = "allow"
 borrow_as_ptr = "allow"
 # Allow unused self in trait implementations
 unused_self = "allow"
+# Kerberos names its messages AP-REQ/AP-REP; `ap_req` and `ap_rep` are the clearest
+# binding names even though they differ by one letter
+similar_names = "allow"

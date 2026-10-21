@@ -75,6 +75,8 @@ mod dce_handshake_tests {
 
     #[test]
     fn test_context_thread_safety() {
+        fn assert_send<T: Send>(_: &T) {}
+
         // Context should be Send but NOT Sync
         let config = KerberosConfig::builder()
             .realm("EXAMPLE.COM")
@@ -85,7 +87,6 @@ mod dce_handshake_tests {
         let ctx = Context::new(config).unwrap();
 
         // This should compile - Context is Send
-        fn assert_send<T: Send>(_: &T) {}
         assert_send(&ctx);
 
         // !Sync is checked by a compile_fail doctest on `Context`
