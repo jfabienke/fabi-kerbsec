@@ -34,7 +34,6 @@ Internal Kerberos (GSS-API) library for DCE/RPC on Unix
 | `channel-bindings`        | TLS channel bindings (RFC 5929)        | ❌      |
 | `channel-bindings-rustls` | Channel bindings with rustls           | ❌      |
 | `trace`                   | Structured logging via tracing         | ❌      |
-| `integration-tests`       | Tests against real KDC                 | ❌      |
 
 ## Installation
 
@@ -263,24 +262,7 @@ acceptor, and runs `tests/e2e_kdc.rs`:
 ./scripts/e2e-kdc.sh
 ```
 
-### Integration Tests (Docker KDC)
-
-Run integration tests against a containerized MIT Kerberos KDC:
-
-```bash
-# Using the test script (recommended)
-./testing/scripts/run-integration-tests.sh
-
-# Or manually with Docker Compose
-docker compose -f testing/docker-compose.yml up -d
-export KRB5_CONFIG=./testing/kdc/krb5.conf
-export KERBSEC_TEST_REALM=TEST.KERBSEC.LOCAL
-export KERBSEC_TEST_USER=testuser
-export KERBSEC_TEST_PASSWORD=user123
-export KERBSEC_TEST_SERVICE_HOST=service.test.kerbsec.local
-cargo test --features integration-tests
-docker compose -f testing/docker-compose.yml down -v
-```
+CI runs the same script in the `e2e` job.
 
 ## Performance
 
