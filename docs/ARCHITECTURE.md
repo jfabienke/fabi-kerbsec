@@ -289,8 +289,7 @@ kerbsec
 ├── runtime ──► tokio
 ├── iov ──────► (enables IOV code paths)
 ├── trace ────► tracing, tracing-subscriber
-├── ccache ───► credential cache management
-└── allow-weak-crypto ► RC4 support (DANGEROUS)
+└── ccache ───► credential cache management
 
  Runtime Configuration (v0.2.0+):
  ├── DCE-style flag (configurable)

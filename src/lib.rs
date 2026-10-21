@@ -10,33 +10,21 @@
 //! This crate is designed for compatibility with Windows AD environments:
 //!
 //! - **DCE/RPC Protocol**: Full support via `GSS_C_DCE_STYLE` flag
-//! - **Encryption**: AES-256, AES-128 (RC4 available with `allow-weak-crypto` feature)
+//! - **Encryption**: whatever the system `krb5.conf` permits (AES by default); kerbsec
+//!   does not select enctypes itself
 //! - **SPN Handling**: Helpers for common Windows service classes
 //! - **Delegation**: Verified negotiation via `gss_inquire_context`
 //!
 //! # Security Exclusions
 //!
-//! The following are **intentionally excluded** for security reasons:
+//! ## Encryption types
 //!
-//! ## RC4-HMAC (etype 23)
-//!
-//! RC4 is disabled by default because:
-//! - RC4 has known cryptographic weaknesses (statistical biases in keystream)
-//! - Vulnerable to related-key attacks
-//! - Microsoft has deprecated RC4 in favor of AES since Windows Server 2008 R2
-//! - NIST has removed RC4 from all approved cipher suites
-//!
-//! If you **must** support legacy systems (pre-Windows Server 2008 R2), enable the
-//! `allow-weak-crypto` feature. This is **not recommended** for production.
-//!
-//! ## DES Encryption (etypes 1, 2, 3)
-//!
-//! DES encryption types are **not supported at all** because:
-//! - 56-bit key size is trivially brute-forceable
-//! - Microsoft disabled DES by default in Windows Server 2008 R2
-//! - DES was removed from Kerberos standards (RFC 6649)
-//!
-//! There is no feature flag to enable DES - upgrade your infrastructure instead.
+//! kerbsec does not choose or restrict Kerberos encryption types: the KDC and the
+//! system GSS-API library negotiate them from `krb5.conf` (`permitted_enctypes`,
+//! `allow_weak_crypto`, ...). To forbid RC4 or DES, configure that in `krb5.conf`
+//! (and on the KDC / service accounts). The resulting protection is enforced
+//! at the message level instead: contexts require integrity, and confidentiality
+//! when [`AuthLevel::Privacy`] is configured, and fail if the peer does not provide it.
 //!
 //! ## NTLM Fallback
 //!
@@ -90,9 +78,7 @@ pub mod channel_bindings;
 pub mod security;
 
 // Re-exports
-pub use config::{
-    AuthLevel, ChannelBindings, EncryptionType, KerberosConfig, KerberosConfigBuilder, ServiceClass,
-};
+pub use config::{AuthLevel, ChannelBindings, KerberosConfig, KerberosConfigBuilder, ServiceClass};
 pub use context::Context;
 pub use error::{Error, Result};
 pub use security::{IovWrap, Oid, KRB5_MECH_OID};

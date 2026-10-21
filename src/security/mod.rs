@@ -10,12 +10,6 @@
 //! - [`Oid`] for mechanism identifiers
 //! - Platform-specific GSS context wrappers
 //!
-//! # Testing Support
-//!
-//! When the `mock` feature is enabled, this module also provides:
-//! - [`traits::MockSecurityContext`] - Mock implementation for unit tests
-//! - [`traits::MockContextBuilder`] - Builder for configuring mock behavior
-//! - [`traits::SecurityContext`] - Trait abstraction for all context types
 
 #[cfg(unix)]
 pub mod gss;
@@ -23,7 +17,6 @@ pub mod gss;
 #[cfg(unix)]
 pub mod gss_iov;
 
-pub mod traits;
 pub mod zeroize;
 
 use bytes::Bytes;

@@ -38,6 +38,13 @@ cargo test --test integration
 KRB5_TRACE=/tmp/krb5.log cargo test
 ```
 
+### End-to-end (real KDC)
+```bash
+# Starts a throwaway MIT KDC on localhost, runs the real 3-leg handshake (tests/e2e_kdc.rs)
+# Needs: krb5-kdc krb5-admin-server krb5-user
+./scripts/e2e-kdc.sh
+```
+
 ### Linting & Verification
 ```bash
 # Run clippy lints (configured with pedantic, nursery, cargo lints)
@@ -115,7 +122,6 @@ The library implements DCE/RPC-specific Kerberos semantics:
 - `iov`: GSS IOV operations for zero-copy (default)
 - `ccache`: Credential cache support
 - `trace`: Structured logging via tracing
-- `allow-weak-crypto`: Enable RC4 (NOT RECOMMENDED)
 
 ## Platform Differences
 
@@ -132,9 +138,10 @@ The library implements DCE/RPC-specific Kerberos semantics:
 ## Critical Implementation Details
 
 1. **GSS_C_DCE_STYLE Flag**: Critical for DCE/RPC - manually applied since libgssapi doesn't expose it
-2. **Thread Safety**: Context is Send but NOT Sync - cannot be shared between threads
-3. **Memory Management**: Zero-copy on Linux IOV, one allocation on macOS fallback
-4. **Error Handling**: Structured errors with GSS major/minor codes preserved
+2. **Thread Safety**: Context is Send but NOT Sync (enforced by a `PhantomData<Cell<()>>` marker; libgssapi's own context claims Sync) - cannot be shared between threads
+3. **Confidentiality is verified, not assumed**: wrap/unwrap read the real `conf_state`; Privacy that was not applied/present is `Error::ConfidentialityNotProvided`. Negotiated flags are checked after the handshake.
+4. **Memory Management**: Zero-copy on Linux IOV, one allocation on macOS fallback
+5. **Error Handling**: Structured errors with GSS major/minor codes preserved
 
 ## Dependencies
 
@@ -144,7 +151,9 @@ The library implements DCE/RPC-specific Kerberos semantics:
 - **RHEL/Fedora**: `krb5-devel`
 
 ### Key Rust Dependencies
-- `libgssapi = "=0.9.1"`: Exact version pinned for security
+- `libgssapi = "=0.9.1"`: Exact version pinned for security. Vendored in `vendor/libgssapi`
+  (via `[patch.crates-io]`) with a single addition, `ClientCtx::raw_ctx()`, so our FFI can
+  observe `conf_state` without reading private struct layout. Re-apply it when upgrading.
 - `hickory-resolver`: DNS operations
 - `tokio`: Async runtime
 - `tracing`: Structured logging

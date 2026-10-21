@@ -71,7 +71,6 @@
 ## Security Enhancements
 
 ### Feature Flags
-- `allow-weak-crypto`: RC4 disabled by default, requires explicit opt-in
 - Pinned `libgssapi = "=0.9.1"` for stability
 
 ### Validation

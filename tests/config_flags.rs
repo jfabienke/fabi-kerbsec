@@ -110,5 +110,4 @@ fn test_builder_defaults_match_impl_default() {
     assert!(config.require_mutual_auth);
     assert!(matches!(config.default_auth, AuthLevel::Privacy));
     assert_eq!(config.dns_timeout, Duration::from_secs(5));
-    assert_eq!(config.gss_timeout, Duration::from_secs(30));
 }

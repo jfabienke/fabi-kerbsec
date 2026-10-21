@@ -40,7 +40,6 @@ When using the builder pattern, the following defaults are applied:
 | `require_mutual_auth` | `true`               | Require server authentication              |
 | `default_auth`        | `AuthLevel::Privacy` | Use encryption by default                  |
 | `dns_timeout`         | 5 seconds            | DNS resolution timeout                     |
-| `gss_timeout`         | 30 seconds           | GSS operation timeout                      |
 
 ## GSS Flags Configuration
 
@@ -277,7 +276,6 @@ kerbsec = {
         "iov",               # Zero-copy IOV operations (default)
         "ccache",            # Credential cache support
         "trace",             # Structured logging
-        # "allow-weak-crypto"  # DANGEROUS: Enable RC4
     ]
 }
 ```
@@ -374,7 +372,6 @@ let config = KerberosConfig::builder()
     .dce_style(false)       // Use standard GSS-API
     .delegation(false)      // Never delegate
     .mutual_auth(true)      // Always verify
-    .gss_timeout(Duration::from_secs(10))  // Short timeout
     .channel_bindings(Some(cb))  // Bind to TLS
     .build()?;
 ```
@@ -389,7 +386,6 @@ let config = KerberosConfig::builder()
     .target_host("fast-server.example.com")
     .default_auth(AuthLevel::Integrity)  // Skip encryption
     .dns_timeout(Duration::from_secs(2))  // Fast DNS timeout
-    .gss_timeout(Duration::from_secs(60))  // Longer GSS timeout
     .build()?;
 ```
 

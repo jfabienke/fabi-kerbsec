@@ -34,9 +34,7 @@ Internal Kerberos (GSS-API) library for DCE/RPC on Unix
 | `channel-bindings`        | TLS channel bindings (RFC 5929)        | ❌      |
 | `channel-bindings-rustls` | Channel bindings with rustls           | ❌      |
 | `trace`                   | Structured logging via tracing         | ❌      |
-| `mock`                    | Mock GSS-API for unit testing          | ❌      |
 | `integration-tests`       | Tests against real KDC                 | ❌      |
-| `allow-weak-crypto`       | Enable RC4 (NOT RECOMMENDED)           | ❌      |
 
 ## Installation
 
@@ -254,21 +252,14 @@ RUST_LOG=kerbsec::gss=trace,kerbsec::iov=debug cargo test
 cargo test --features iov  # Tests IOV on Linux, fallback on macOS
 ```
 
-### Mock Testing
+### End-to-end tests (throwaway KDC)
 
-The `mock` feature provides a mock GSS-API implementation for unit testing without a real KDC:
+`scripts/e2e-kdc.sh` starts a temporary MIT KDC on localhost (needs `krb5-kdc`,
+`krb5-admin-server` and `krb5-user`), performs the real 3-leg handshake against an
+acceptor, and runs `tests/e2e_kdc.rs`:
 
-```rust
-use kerbsec::security::traits::{MockContextBuilder, SecurityContext};
-
-let mut ctx = MockContextBuilder::new()
-    .with_successful_handshake()
-    .with_delegation()
-    .build();
-
-ctx.initial_token().unwrap();
-ctx.accept_response(&[0x00]).unwrap();
-assert!(ctx.is_established());
+```bash
+./scripts/e2e-kdc.sh
 ```
 
 ### Integration Tests (Docker KDC)

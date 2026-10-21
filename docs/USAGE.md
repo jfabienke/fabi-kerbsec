@@ -363,21 +363,15 @@ export KRB5_TRACE_LEVEL=5
 
 ## Security Considerations
 
-### RC4 Disabled by Default
+### Encryption types come from krb5.conf
 
-RC4-HMAC (arcfour-hmac) is disabled by default due to known weaknesses:
-
-```rust
-// Enable weak ciphers only if absolutely necessary (NOT RECOMMENDED)
-#[cfg(feature = "allow-weak-crypto")]
-let config = KerberosConfig::builder()
-    .realm("LEGACY.CORP")
-    .target_host("old.server")
-    .allow_weak_crypto(true) // Enables RC4
-    .build()?;
-```
+kerbsec does not select encryption types; the KDC and system GSS-API library negotiate
+them. RC4-HMAC (arcfour-hmac) is weak, so keep `allow_weak_crypto = false` (see the
+`krb5.conf` examples above) and restrict `permitted_enctypes`.
 
 ### Supported Encryption Types
+
+Strength guide only; the negotiated type is governed by `krb5.conf`.
 
 | Type                       | Security | Default | Notes            |
 |----------------------------|----------|---------|------------------|
