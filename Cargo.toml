@@ -80,9 +80,6 @@ harness = false
 warnings = "warn"
 missing_docs = "warn"
 
-[build-dependencies]
-pkg-config = "0.3"
-
 [lints.clippy]
 # Lint groups with explicit priority (higher = evaluated later)
 all = { level = "warn", priority = -1 }

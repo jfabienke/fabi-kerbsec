@@ -537,12 +537,8 @@ impl KerberosConfigBuilder {
         instrument(target = "kerbsec::config", level = "debug", skip_all)
     )]
     pub fn build(self) -> Result<KerberosConfig> {
-        let realm = self
-            .realm
-            .ok_or_else(|| Error::Config("realm is required".into()))?;
-        let target_fqdn = self
-            .target_host
-            .ok_or_else(|| Error::Config("target_host is required".into()))?;
+        let realm = required("realm", self.realm)?;
+        let target_fqdn = normalize_host(&required("target_host", self.target_host)?);
 
         // Validate SPN format if provided
         if let Some(ref spn) = self.spn_override {
@@ -550,7 +546,7 @@ impl KerberosConfigBuilder {
         }
 
         // Check if target is IP and requires override
-        if target_fqdn.parse::<std::net::IpAddr>().is_ok() && self.spn_override.is_none() {
+        if is_ip_literal(&target_fqdn) && self.spn_override.is_none() {
             #[cfg(feature = "trace")]
             warn!(target: "kerbsec::config", target = %target_fqdn, "IP target requires SPN override");
             return Err(Error::IpTargetRequiresSpnOverride);
@@ -605,23 +601,23 @@ impl KerberosConfigBuilder {
     pub async fn build_async(self) -> Result<KerberosConfig> {
         use crate::dns::resolver::canonicalize_fqdn;
 
-        let realm = self
-            .realm
-            .ok_or_else(|| Error::Config("realm is required".into()))?;
-        let target_host = self
-            .target_host
-            .ok_or_else(|| Error::Config("target_host is required".into()))?;
+        let realm = required("realm", self.realm)?;
+        let target_host = normalize_host(&required("target_host", self.target_host)?);
 
         // Validate SPN format if provided
         if let Some(ref spn) = self.spn_override {
             validate_spn(spn)?;
         }
 
-        // Canonicalize via DNS (CNAME → A/AAAA)
-        let target_fqdn = canonicalize_fqdn(&target_host, self.dns_timeout).await?;
+        // Canonicalize via DNS (CNAME → A/AAAA); IP literals have nothing to resolve
+        let target_fqdn = if is_ip_literal(&target_host) {
+            target_host.clone()
+        } else {
+            canonicalize_fqdn(&target_host, self.dns_timeout).await?
+        };
 
         // Check if target is IP and requires override
-        if target_fqdn.parse::<std::net::IpAddr>().is_ok() && self.spn_override.is_none() {
+        if is_ip_literal(&target_fqdn) && self.spn_override.is_none() {
             #[cfg(feature = "trace")]
             warn!(target: "kerbsec::config", target = %target_fqdn, "IP target requires SPN override");
             return Err(Error::IpTargetRequiresSpnOverride);
@@ -661,6 +657,32 @@ impl KerberosConfigBuilder {
     }
 }
 
+/// A required builder field, trimmed and non-empty
+fn required(name: &str, value: Option<String>) -> Result<String> {
+    let value = value.ok_or_else(|| Error::Config(format!("{name} is required")))?;
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(Error::Config(format!("{name} cannot be empty")));
+    }
+    Ok(value.to_owned())
+}
+
+/// Normalize a target host: lowercase, no trailing root dot, and no brackets
+/// around an IPv6 literal. Applied identically by `build` and `build_async`.
+fn normalize_host(host: &str) -> String {
+    let host = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+    host.trim_end_matches('.').to_lowercase()
+}
+
+/// Whether `host` is an IPv4/IPv6 literal (an IPv6 zone id like `%eth0` is ignored)
+fn is_ip_literal(host: &str) -> bool {
+    let addr = host.split_once('%').map_or(host, |(addr, _zone)| addr);
+    addr.parse::<std::net::IpAddr>().is_ok()
+}
+
 /// Validate SPN (Service Principal Name) format
 ///
 /// SPNs must follow the format: `service/hostname[@REALM]`
@@ -679,6 +701,16 @@ impl KerberosConfigBuilder {
 fn validate_spn(spn: &str) -> Result<()> {
     if spn.is_empty() {
         return Err(Error::Config("SPN cannot be empty".into()));
+    }
+
+    if spn.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(Error::Config(
+            "SPN cannot contain whitespace or control characters".into(),
+        ));
+    }
+
+    if spn.matches('@').count() > 1 {
+        return Err(Error::Config("SPN can contain at most one '@'".into()));
     }
 
     // Remove optional realm suffix for validation
@@ -710,6 +742,11 @@ fn validate_spn(spn: &str) -> Result<()> {
         return Err(Error::Config(
             "SPN hostname part cannot be empty (after '/')".into(),
         ));
+    }
+
+    // A trailing ':' means an empty port
+    if hostname.ends_with(':') {
+        return Err(Error::Config("SPN port cannot be empty after ':'".into()));
     }
 
     // Check for double slashes
@@ -851,5 +888,61 @@ mod tests {
 
         let legacy = EncryptionType::legacy_etypes();
         assert!(legacy.contains(&EncryptionType::Rc4Hmac));
+    }
+
+    #[test]
+    fn test_stricter_spn_validation() {
+        assert!(validate_spn("HOST/a b.example.com").is_err());
+        assert!(validate_spn("HOST/host\n").is_err());
+        assert!(validate_spn("HOST/h@A@B").is_err());
+        assert!(validate_spn("MSSQLSvc/sql.example.com:").is_err());
+    }
+
+    #[test]
+    fn test_required_fields_reject_empty() {
+        assert!(required("realm", None).is_err());
+        assert!(required("realm", Some("  ".into())).is_err());
+        assert_eq!(
+            required("realm", Some(" EX.COM ".into())).unwrap(),
+            "EX.COM"
+        );
+    }
+
+    #[test]
+    fn test_host_normalization_and_ip_detection() {
+        assert_eq!(normalize_host("Web.Example.COM."), "web.example.com");
+        assert_eq!(normalize_host("[::1]"), "::1");
+        assert!(is_ip_literal("192.0.2.1"));
+        assert!(is_ip_literal("::1"));
+        assert!(is_ip_literal("fe80::1%eth0"));
+        assert!(!is_ip_literal("web.example.com"));
+    }
+
+    #[test]
+    fn test_build_normalizes_host_and_rejects_empty() {
+        let cfg = KerberosConfig::builder()
+            .realm("EX.COM")
+            .target_host("Web.Example.Com.")
+            .build()
+            .unwrap();
+        assert_eq!(cfg.target_fqdn, "web.example.com");
+
+        assert!(KerberosConfig::builder()
+            .realm("EX.COM")
+            .target_host("")
+            .build()
+            .is_err());
+        assert!(KerberosConfig::builder()
+            .realm(" ")
+            .target_host("h.ex.com")
+            .build()
+            .is_err());
+        assert!(matches!(
+            KerberosConfig::builder()
+                .realm("EX.COM")
+                .target_host("[::1]")
+                .build(),
+            Err(Error::IpTargetRequiresSpnOverride)
+        ));
     }
 }
