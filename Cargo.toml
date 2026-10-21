@@ -23,9 +23,6 @@ channel-bindings-rustls = ["channel-bindings", "dep:rustls", "dep:ring"]
 windows-sspi = []  # Reserved for future use
 trace = ["dep:tracing", "dep:tracing-subscriber"]
 
-# Testing features
-integration-tests = ["trace"]  # Enable tests against real KDC
-
 [dependencies]
 thiserror = "2"
 anyhow = { version = "1.0", optional = true }
@@ -56,13 +53,8 @@ libgssapi = { path = "vendor/libgssapi" }
 [dev-dependencies]
 # Header-derived constants/layouts that tests/ffi_abi.rs compares our hand-written FFI against
 libgssapi-sys = "0.3.1"
-proptest = "1.4"
-rstest = "0.18"
-pretty_assertions = "1.4"
-tokio-test = "0.4"
 tokio = { version = "1.47", features = ["rt-multi-thread", "macros"] }
 anyhow = "1.0"
-criterion = { version = "0.5", features = ["html_reports"] }
 
 [[example]]
 name = "wmi_client"
@@ -71,10 +63,6 @@ required-features = ["dns", "runtime"]
 [[example]]
 name = "ccache_demo"
 required-features = ["ccache"]
-
-[[bench]]
-name = "wrap_unwrap"
-harness = false
 
 [lints.rust]
 warnings = "warn"

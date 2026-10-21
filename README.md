@@ -282,16 +282,6 @@ cargo test --features integration-tests
 docker compose -f testing/docker-compose.yml down -v
 ```
 
-### Benchmarks
-
-```bash
-# Run performance benchmarks
-cargo bench
-
-# Generate benchmark report
-cargo bench -- --save-baseline main
-```
-
 ## Performance
 
 kerbsec is optimized for DCE/RPC workloads with the following performance targets:
@@ -321,8 +311,6 @@ kerbsec is optimized for DCE/RPC workloads with the following performance target
 | accept_ap_rep() | <5ms       | AP-REP processing       |
 | wrap_iov(4KB)   | <100μs     | Typical RPC request     |
 | unwrap_iov(4KB) | <100μs     | Typical RPC response    |
-
-Run benchmarks with `cargo bench` to measure on your hardware.
 
 ## Examples
 

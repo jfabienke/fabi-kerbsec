@@ -57,15 +57,6 @@ cargo fmt --check
 cargo doc --all-features --no-deps
 ```
 
-### Benchmarking
-```bash
-# Run performance benchmarks
-cargo bench
-
-# Generate benchmark report
-cargo bench -- --save-baseline main
-```
-
 ### Running Examples
 ```bash
 # WMI client example with logging
