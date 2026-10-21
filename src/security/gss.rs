@@ -243,11 +243,11 @@ impl GssContext {
             Ok(token) => {
                 // Check if complete - is_complete() returns bool directly
                 if ctx.is_complete() {
+                    // Query the flags the mechanism actually negotiated, not what we
+                    // requested. Failing to learn them is an error: assuming the
+                    // requested flags were granted would fail open.
+                    let negotiated_flags = ctx.flags().map_err(gss_error)?.bits();
                     self.established = true;
-
-                    // Query actual negotiated flags using gss_inquire_context
-                    // This properly verifies what was negotiated, not just what we requested
-                    let negotiated_flags = self.inquire_context_flags();
 
                     // Check if delegation was actually granted
                     self.delegation_negotiated = (negotiated_flags & GSS_C_DELEG_FLAG) != 0;
@@ -293,71 +293,6 @@ impl GssContext {
                 Err(gss_error(e))
             }
         }
-    }
-
-    /// Query the actual negotiated context flags using `gss_inquire_context`
-    ///
-    /// This uses direct FFI to get the real flags that were negotiated,
-    /// not just what we requested.
-    fn inquire_context_flags(&self) -> u32 {
-        use crate::ffi;
-        use std::ptr;
-
-        let Some(ctx) = &self.inner else {
-            return 0;
-        };
-
-        // SAFETY: We need to extract the raw context handle from ClientCtx
-        // This uses the same technique as gss_iov.rs
-        let ctx_handle = unsafe {
-            let ctx_ptr = ptr::from_ref(ctx).cast::<ffi::gss_ctx_id_t>();
-            ptr::read(ctx_ptr)
-        };
-
-        if ctx_handle.is_null() {
-            return 0;
-        }
-
-        let mut minor_status: ffi::OM_uint32 = 0;
-        let mut ctx_flags: ffi::OM_uint32 = 0;
-
-        // SAFETY: All pointers are valid, we pass NULL for fields we don't need
-        let major_status = unsafe {
-            ffi::gss_inquire_context(
-                &mut minor_status,
-                ctx_handle,
-                ptr::null_mut(), // src_name - not needed
-                ptr::null_mut(), // targ_name - not needed
-                ptr::null_mut(), // lifetime_rec - not needed
-                ptr::null_mut(), // mech_type - not needed
-                &mut ctx_flags,
-                ptr::null_mut(), // locally_initiated - not needed
-                ptr::null_mut(), // open - not needed
-            )
-        };
-
-        if major_status != ffi::GSS_S_COMPLETE {
-            #[cfg(feature = "trace")]
-            warn!(
-                target: "kerbsec::gss",
-                major = format_args!("{:#x}", major_status),
-                minor = format_args!("{:#x}", minor_status),
-                "gss_inquire_context failed, falling back to requested flags"
-            );
-
-            // Fallback: assume what we requested was granted
-            // This maintains backward compatibility
-            let mut fallback_flags = 0u32;
-            if self.config.enable_delegation {
-                fallback_flags |= GSS_C_DELEG_FLAG;
-            }
-            if self.config.require_mutual_auth {
-                fallback_flags |= GSS_C_MUTUAL_FLAG;
-            }
-            return fallback_flags;
-        }
-
-        ctx_flags
     }
 
     /// Check if the security context is fully established
