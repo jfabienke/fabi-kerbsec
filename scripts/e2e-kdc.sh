@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 # Run the end-to-end tests (tests/e2e_kdc.rs) against a throwaway MIT KDC.
 #
-# Needs: krb5-kdc, krb5-admin-server (kdb5_util, kadmin.local, krb5kdc) and krb5-user (kinit).
-# Everything lives in a temp dir and is removed on exit; the KDC listens on 127.0.0.1:8888.
+# Needs MIT Kerberos KDC tools (kdb5_util, kadmin.local, krb5kdc) and MIT kinit:
+#   Debian/Ubuntu: krb5-kdc krb5-admin-server krb5-user
+#   macOS:         brew install krb5 (put first on PATH automatically; Apple's own
+#                  kinit is Heimdal's and does not read a password from stdin)
+# The library under test is whatever kerbsec links: MIT on Linux, Apple's GSS.framework
+# on macOS. Everything lives in a temp dir and is removed on exit (set KEEP=1 to keep
+# it); the KDC listens on 127.0.0.1:8888.
+#
+# KERBSEC_E2E_CARGO_FLAGS overrides the cargo flags (default: --all-features), e.g.
+#   KERBSEC_E2E_CARGO_FLAGS="--no-default-features --features dns" to test without IOV.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,6 +46,10 @@ CONF
 export KRB5_CONFIG="$work/krb5.conf" KRB5_KDC_PROFILE="$work/kdc.conf"
 export KRB5CCNAME="FILE:$work/ccache" KRB5_KTNAME="$work/service.keytab"
 
+if command -v brew >/dev/null 2>&1 && [ -d "$(brew --prefix krb5 2>/dev/null)" ]; then
+  krb5_prefix="$(brew --prefix krb5)"
+  PATH="$krb5_prefix/sbin:$krb5_prefix/bin:$PATH"
+fi
 PATH="$PATH:/usr/sbin"
 kdb5_util create -s -r TEST.LOCAL -P masterpw >/dev/null
 kadmin.local -q "addprinc -pw userpw user@TEST.LOCAL" >/dev/null
@@ -54,4 +66,5 @@ done
 echo userpw | kinit user@TEST.LOCAL
 
 cd "$root"
-cargo test --all-features --test e2e_kdc -- --ignored --test-threads=1 "$@"
+# shellcheck disable=SC2086  # flags are intentionally word-split
+cargo test ${KERBSEC_E2E_CARGO_FLAGS:---all-features} --test e2e_kdc -- --ignored --test-threads=1 "$@"

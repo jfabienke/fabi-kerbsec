@@ -63,21 +63,25 @@ fn context_flag_constants_match_headers() {
 #[test]
 fn status_and_qop_constants_match_headers() {
     assert_eq!(ffi::GSS_S_COMPLETE, sys::GSS_S_COMPLETE);
+    assert_eq!(
+        ffi::GSS_C_SUPPLEMENTARY_MASK,
+        sys::_GSS_C_SUPPLEMENTARY_MASK
+    );
     assert_eq!(ffi::GSS_C_QOP_DEFAULT, sys::GSS_C_QOP_DEFAULT);
     assert_eq!(ffi::GSS_C_GSS_CODE, sys::GSS_C_GSS_CODE as i32);
     assert_eq!(ffi::GSS_C_MECH_CODE, sys::GSS_C_MECH_CODE as i32);
 }
 
+/// kerbsec only passes pointers to `gss_buffer_desc` values it created, so size and
+/// field offsets must match the header; its alignment may be stricter. (Apple's
+/// headers `#pragma pack(2)` these structs on Intel Macs, which lowers theirs.)
 #[test]
 fn gss_buffer_desc_layout_matches_headers() {
     assert_eq!(
         size_of::<ffi::gss_buffer_desc>(),
         size_of::<sys::gss_buffer_desc>()
     );
-    assert_eq!(
-        align_of::<ffi::gss_buffer_desc>(),
-        align_of::<sys::gss_buffer_desc>()
-    );
+    assert!(align_of::<ffi::gss_buffer_desc>() >= align_of::<sys::gss_buffer_desc>());
     assert_eq!(
         offset_of!(ffi::gss_buffer_desc, length),
         offset_of!(sys::gss_buffer_desc, length)
@@ -88,6 +92,9 @@ fn gss_buffer_desc_layout_matches_headers() {
     );
 }
 
+/// The IOV calls, and so `gss_iov_buffer_desc` arrays, are only used on Linux. Apple
+/// packs this struct on Intel Macs (20 bytes, not 24), so it must never be used there.
+#[cfg(target_os = "linux")]
 #[test]
 fn gss_iov_buffer_desc_layout_matches_headers() {
     assert_eq!(

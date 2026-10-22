@@ -430,8 +430,8 @@ impl KerberosConfigBuilder {
         }
 
         let config = KerberosConfig {
-            realm: realm.clone(),
-            target_fqdn: target_fqdn.clone(),
+            realm,
+            target_fqdn,
             spn_override: self.spn_override,
             default_auth: self.default_auth,
             dns_timeout: self.dns_timeout,
@@ -448,8 +448,8 @@ impl KerberosConfigBuilder {
         #[cfg(feature = "trace")]
         debug!(
             target: "kerbsec::config",
-            realm = %realm,
-            fqdn = %target_fqdn,
+            realm = %config.realm,
+            fqdn = %config.target_fqdn,
             has_spn_override = config.spn_override.is_some(),
             auth_level = ?config.default_auth,
             has_ccache = config.kccache.is_some(),
@@ -500,8 +500,8 @@ impl KerberosConfigBuilder {
         }
 
         let config = KerberosConfig {
-            realm: realm.clone(),
-            target_fqdn: target_fqdn.clone(),
+            realm,
+            target_fqdn,
             spn_override: self.spn_override,
             default_auth: self.default_auth,
             dns_timeout: self.dns_timeout,
@@ -518,9 +518,9 @@ impl KerberosConfigBuilder {
         #[cfg(feature = "trace")]
         debug!(
             target: "kerbsec::config",
-            realm = %realm,
+            realm = %config.realm,
             target_host = %target_host,
-            canonical_fqdn = %target_fqdn,
+            canonical_fqdn = %config.target_fqdn,
             has_spn_override = config.spn_override.is_some(),
             auth_level = ?config.default_auth,
             has_ccache = config.kccache.is_some(),

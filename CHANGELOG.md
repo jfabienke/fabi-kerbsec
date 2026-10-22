@@ -51,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Context` is now actually `!Sync`, as documented.
 - GSS error text includes every status message, not only the first.
 - `--no-default-features` and `--features ccache` build again.
+- GSS error text kept only the supplementary condition on Heimdal and Apple's
+  GSS.framework (e.g. "duplicate token" but not "invalid MIC"); the error and
+  supplementary bits are now displayed separately.
 
 ### Changed
 - GSS_C_DCE_STYLE flag moved from compile-time feature to runtime configuration
@@ -76,6 +79,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/e2e-kdc.sh` and `tests/e2e_kdc.rs`: real 3-leg handshake against a
   throwaway MIT KDC, run in CI.
 - `tests/ffi_abi.rs` checks the hand-written FFI against the system headers.
+- CI `macos` job: clippy, tests and the e2e handshake against Apple's GSS.framework.
+- Known issue: Heimdal on Linux with the `iov` feature fails Privacy and Integrity
+  wraps (DCE-style IOV layout); use it without `iov`.
 - Removed tests that could not fail.
 
 ## [0.2.0] - 2025-01-21

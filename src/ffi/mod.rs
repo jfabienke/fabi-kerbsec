@@ -80,6 +80,9 @@ pub const GSS_IOV_BUFFER_FLAG_ALLOCATED: c_uint = 0x0002_0000;
 // IOV buffer descriptor
 
 /// GSS-API IOV buffer descriptor for scatter-gather operations
+///
+/// Only valid where the IOV functions are declared (Linux). Apple's headers
+/// `#pragma pack(2)` this struct on Intel Macs, so this layout would be wrong there.
 #[repr(C)]
 pub struct gss_iov_buffer_desc {
     /// Buffer type and flags (OR'd together)
@@ -120,6 +123,9 @@ pub const GSS_C_DCE_STYLE: OM_uint32 = 0x1000;
 pub const GSS_S_COMPLETE: OM_uint32 = 0;
 /// GSS operation needs continuation
 pub const GSS_S_CONTINUE_NEEDED: OM_uint32 = 1;
+/// Low 16 bits of a major status: supplementary information (duplicate, old,
+/// unsequenced or gap token) rather than an error
+pub const GSS_C_SUPPLEMENTARY_MASK: OM_uint32 = 0xffff;
 
 // Error handling
 

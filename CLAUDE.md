@@ -123,11 +123,16 @@ The library implements DCE/RPC-specific Kerberos semantics:
 - Full native IOV support via custom FFI bindings
 - Optimal zero-copy performance
 - Direct access to gss_wrap_iov/gss_unwrap_iov
+- **Heimdal on Linux with `iov` does not work**: in DCE style Heimdal rejects the
+  HEADER|DATA|PADDING|TRAILER layout and integrity-only `gss_wrap_iov` (`EINVAL`).
+  Build without `iov` on Heimdal; the single-token path passes the e2e tests there.
 
 ### macOS (Apple GSS.framework, Heimdal-derived)
 - kerbsec does not use IOV here; it uses single-token `gss_wrap`/`gss_unwrap`
 - `IovWrap::header` holds the whole token; `payload` and `trailer` are empty
 - Same confidentiality and flag checks as Linux
+- CI's `macos` job runs clippy, the tests and `scripts/e2e-kdc.sh` (KDC and kinit
+  from Homebrew `krb5`) against GSS.framework
 
 ## Critical Implementation Details
 

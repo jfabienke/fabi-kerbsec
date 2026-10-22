@@ -641,9 +641,22 @@ fn gss_error(major: ffi::OM_uint32, minor: ffi::OM_uint32) -> Error {
 fn display_gss_status(major: ffi::OM_uint32, minor: ffi::OM_uint32) -> String {
     let mut messages = Vec::new();
 
-    // Display major status
-    if let Some(msg) = display_status_code(major, ffi::GSS_C_GSS_CODE) {
-        messages.push(msg);
+    // Display the major status. The error (calling/routine) bits and the
+    // supplementary bits are displayed separately: Heimdal (and so Apple's
+    // GSS.framework) describes only the supplementary condition when both are
+    // set, which would drop the actual error.
+    let errors = major & !ffi::GSS_C_SUPPLEMENTARY_MASK;
+    let supplementary = major & ffi::GSS_C_SUPPLEMENTARY_MASK;
+    let parts: &[ffi::OM_uint32] = match (errors, supplementary) {
+        (0, 0) => &[major],
+        (0, s) => &[s],
+        (e, 0) => &[e],
+        _ => &[errors, supplementary],
+    };
+    for &code in parts {
+        if let Some(msg) = display_status_code(code, ffi::GSS_C_GSS_CODE) {
+            messages.push(msg);
+        }
     }
 
     // Display minor status
@@ -727,20 +740,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn display_status_reports_every_condition_in_a_major_code() {
-        // A routine error plus a supplementary bit: two messages from GSS
+    fn status_text_includes_error_and_supplementary_condition() {
+        // A routine error plus a supplementary bit. MIT returns both messages
+        // over successive calls; Heimdal returns only the supplementary one
+        // unless the two are displayed separately.
         let bad_sig = 6 << 16; // GSS_S_BAD_SIG
         let duplicate = 1 << 1; // GSS_S_DUPLICATE_TOKEN
-        let single = display_status_code(bad_sig, ffi::GSS_C_GSS_CODE).expect("message");
-        let both = display_status_code(bad_sig | duplicate, ffi::GSS_C_GSS_CODE).expect("message");
+        let error_text = display_status_code(bad_sig, ffi::GSS_C_GSS_CODE).expect("message");
+        let supplementary_text =
+            display_status_code(duplicate, ffi::GSS_C_GSS_CODE).expect("message");
 
+        let text = display_gss_status(bad_sig | duplicate, 0);
         assert!(
-            both.starts_with(&single),
-            "{both:?} should start with {single:?}"
+            text.contains(error_text.trim()),
+            "{text:?} lacks {error_text:?}"
         );
         assert!(
-            both.len() > single.len() + 2,
-            "supplementary message missing: {both:?}"
+            text.contains(supplementary_text.trim()),
+            "{text:?} lacks {supplementary_text:?}"
         );
     }
 }

@@ -189,7 +189,7 @@ The implementation follows these standards and specifications, available in `doc
 
 ### IOV Implementation
 
-**Linux**: Full native IOV support using custom FFI bindings to `gss_wrap_iov`/`gss_unwrap_iov`. This provides zero-copy operations and optimal performance for DCE/RPC workloads.
+**Linux**: Full native IOV support using custom FFI bindings to `gss_wrap_iov`/`gss_unwrap_iov`. This provides zero-copy operations and optimal performance for DCE/RPC workloads. This is tested with MIT Kerberos. With Heimdal on Linux, build without the `iov` feature: in DCE style Heimdal rejects the IOV buffer layout kerbsec uses.
 
 **macOS** (and Linux without the `iov` feature): uses single-token `gss_wrap`/`gss_unwrap`. `IovWrap::header` holds the whole wrapped token and `payload`/`trailer` are empty, so the caller sends the header as one blob. Confidentiality and flag checks are the same as on Linux.
 
@@ -262,7 +262,8 @@ acceptor, and runs `tests/e2e_kdc.rs`:
 ./scripts/e2e-kdc.sh
 ```
 
-CI runs the same script in the `e2e` job.
+CI runs the same script in the `e2e` job (Linux, MIT) and the `macos` job (Apple GSS.framework,
+with the KDC and `kinit` from Homebrew's `krb5`).
 
 ## Performance
 

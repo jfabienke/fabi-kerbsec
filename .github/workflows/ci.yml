@@ -99,6 +99,39 @@ jobs:
           RUST_LOG: kerbsec::ctx=info,kerbsec::gss=debug,kerbsec::iov=trace
         run: cargo run --example wmi_client --features trace,dns,runtime --no-default-features || true
 
+  # macOS: builds and tests against Apple's GSS.framework (Heimdal-derived), which uses
+  # the single-token gss_wrap/gss_unwrap path, then runs the real handshake against a
+  # throwaway MIT KDC from Homebrew.
+  macos:
+    name: macOS (Apple GSS.framework)
+    runs-on: macos-latest
+    env:
+      # Never pick up Homebrew's MIT libgssapi by accident
+      LIBGSSAPI_IMPL: apple
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Point bindgen at the active SDK
+        # libgssapi-sys hard-codes the Command Line Tools SDK path for <GSS/GSS.h>
+        run: echo "BINDGEN_EXTRA_CLANG_ARGS=-F$(xcrun --show-sdk-path)/System/Library/Frameworks" >> "$GITHUB_ENV"
+
+      - name: Install MIT Kerberos (KDC and kinit for the e2e tests)
+        run: brew list krb5 >/dev/null 2>&1 || brew install krb5
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        run: cargo test --all-features
+
+      - name: Run end-to-end tests
+        run: ./scripts/e2e-kdc.sh
+
   # End-to-end tests: real 3-leg handshake against a throwaway MIT KDC
   e2e:
     name: End-to-end (MIT KDC)
