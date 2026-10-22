@@ -191,7 +191,7 @@ The implementation follows these standards and specifications, available in `doc
 
 **Linux**: Full native IOV support using custom FFI bindings to `gss_wrap_iov`/`gss_unwrap_iov`. This provides zero-copy operations and optimal performance for DCE/RPC workloads.
 
-**macOS**: Falls back to regular wrap/unwrap with header/trailer estimation since GSS.framework doesn't expose IOV functions. Performance is still good but not optimal.
+**macOS** (and Linux without the `iov` feature): uses single-token `gss_wrap`/`gss_unwrap`. `IovWrap::header` holds the whole wrapped token and `payload`/`trailer` are empty, so the caller sends the header as one blob. Confidentiality and flag checks are the same as on Linux.
 
 The implementation automatically detects the platform and uses the best available method
 

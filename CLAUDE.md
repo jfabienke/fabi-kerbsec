@@ -31,8 +31,8 @@ cargo test --all-features
 # Run with trace logging enabled
 RUST_LOG=kerbsec=debug cargo test --features trace
 
-# Test specific module
-cargo test --test integration
+# Test specific file
+cargo test --all-features --test config_flags
 
 # Test with MIT Kerberos tracing
 KRB5_TRACE=/tmp/krb5.log cargo test
@@ -47,8 +47,8 @@ KRB5_TRACE=/tmp/krb5.log cargo test
 
 ### Linting & Verification
 ```bash
-# Run clippy lints (configured with pedantic, nursery, cargo lints)
-cargo clippy --all-features -- -D warnings
+# Run clippy lints (configured with pedantic, nursery, cargo lints) - same as CI
+cargo clippy --all-targets --all-features -- -D warnings
 
 # Check formatting
 cargo fmt --check
@@ -85,9 +85,12 @@ The library implements a layered architecture with platform abstractions:
    - `AuthLevel`: Integrity vs Privacy selection
 
 4. **FFI Layer** (`src/ffi/`)
-   - Custom FFI bindings for IOV operations (gss_wrap_iov/gss_unwrap_iov)
-   - Required because libgssapi 0.9.1 doesn't expose IOV functions
-   - Platform-specific: Linux has native IOV, macOS falls back to regular wrap/unwrap
+   - Hand-written bindings for `gss_wrap`/`gss_unwrap`, `gss_wrap_iov`/`gss_unwrap_iov`,
+     `gss_wrap_size_limit` and status display
+   - Needed because libgssapi's wrappers discard `conf_state`, which kerbsec must check
+   - `tests/ffi_abi.rs` checks them against the system headers
+   - Platform-specific: Linux (with `iov`) uses native IOV; elsewhere single-token
+     `gss_wrap`/`gss_unwrap`
 
 ### Protocol Implementation
 
@@ -121,10 +124,10 @@ The library implements DCE/RPC-specific Kerberos semantics:
 - Optimal zero-copy performance
 - Direct access to gss_wrap_iov/gss_unwrap_iov
 
-### macOS (Heimdal)
-- No IOV support in GSS.framework
-- Falls back to regular wrap/unwrap with header/trailer estimation
-- Performance still good but not optimal
+### macOS (Apple GSS.framework, Heimdal-derived)
+- kerbsec does not use IOV here; it uses single-token `gss_wrap`/`gss_unwrap`
+- `IovWrap::header` holds the whole token; `payload` and `trailer` are empty
+- Same confidentiality and flag checks as Linux
 
 ## Critical Implementation Details
 
