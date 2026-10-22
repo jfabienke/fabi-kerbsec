@@ -151,7 +151,7 @@ The library implements DCE/RPC-specific Kerberos semantics:
 
 ### Key Rust Dependencies
 - `libgssapi = "=0.9.1"`: Exact version pinned for security. Vendored in `vendor/libgssapi`
-  (via `[patch.crates-io]`) with a single addition, `ClientCtx::raw_ctx()`, so our FFI can
+  (as a path dependency, so dependents get it too) with a single addition, `ClientCtx::raw_ctx()`, so our FFI can
   observe `conf_state` without reading private struct layout. Re-apply it when upgrading.
 - `hickory-resolver`: DNS operations
 - `tokio`: Async runtime
