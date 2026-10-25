@@ -499,6 +499,16 @@ unsafe impl Send for ServerCtx {}
 unsafe impl Sync for ServerCtx {}
 
 impl ServerCtx {
+    /// kerbsec patch: the raw `gss_ctx_id_t` behind this context.
+    ///
+    /// The same contract as `ClientCtx::raw_ctx`: the handle is owned by `self`,
+    /// must not outlive the borrow of `self` and must never be deleted by the
+    /// caller. kerbsec's end-to-end tests use it to drive the acceptor side of
+    /// the DCE/RPC IOV calls, which libgssapi does not wrap.
+    pub fn raw_ctx(&self) -> gss_ctx_id_t {
+        self.ctx
+    }
+
     /// Create a new uninitialized server context with the specified
     /// credentials. You must then call `step` until the context is
     /// fully initialized. The mechanism is not specified because it

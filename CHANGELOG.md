@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   confidentiality and DCE style when configured) - `Error::FlagNotNegotiated`. A failed
   flag inquiry is an error instead of assuming the requested flags.
 - No longer reads libgssapi's private `ClientCtx` layout; libgssapi 0.9.1 is vendored
-  with one accessor, `ClientCtx::raw_ctx()`.
+  with a raw-handle accessor, `ClientCtx::raw_ctx()` (and `ServerCtx::raw_ctx()` for the e2e tests).
 - A credential cache or keytab that conflicts with the process-wide one is an error
   instead of being silently ignored. `KRB5_KTNAME` is no longer used as a client keytab.
 - Credential delegation disabled by default for security

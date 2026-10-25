@@ -62,6 +62,7 @@ fn run(service_name: &[u8]) -> Result<(), Error> {
 
 ---
 
-**kerbsec vendored copy of libgssapi 0.9.1.** The only change is the addition of
-`ClientCtx::raw_ctx` in `src/context.rs`; examples, lockfile and VCS metadata were
-removed. Re-apply that one method when upgrading.
+**kerbsec vendored copy of libgssapi 0.9.1.** The only changes are two accessors in
+`src/context.rs`, `ClientCtx::raw_ctx` and `ServerCtx::raw_ctx` (the latter for kerbsec's
+end-to-end tests); examples, lockfile and VCS metadata were removed. Re-apply both
+methods when upgrading.

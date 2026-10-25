@@ -43,7 +43,8 @@ ring = { version = "0.17", optional = true }
 
 # Unix-only GSS-API - exact version for security
 [target.'cfg(unix)'.dependencies]
-# libgssapi 0.9.1 plus one accessor (ClientCtx::raw_ctx); see vendor/libgssapi/README.md.
+# libgssapi 0.9.1 plus raw-handle accessors (ClientCtx::raw_ctx, ServerCtx::raw_ctx); see
+# vendor/libgssapi/README.md.
 # A path dependency (not [patch]) so crates that depend on kerbsec get the patched copy too.
 libgssapi = { path = "vendor/libgssapi", version = "=0.9.1", default-features = false }
 libc = "0.2"
