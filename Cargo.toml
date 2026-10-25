@@ -19,7 +19,7 @@ ccache = ["dep:tempfile"]  # Core credential cache support
 ccache-kcm = []  # KCM daemon backend via D-Bus
 ccache-keyring = []  # Linux kernel keyring backend
 channel-bindings = []  # TLS channel bindings (RFC 5929)
-channel-bindings-rustls = ["channel-bindings", "dep:rustls", "dep:ring"]
+channel-bindings-rustls = ["channel-bindings", "dep:rustls", "dep:sha2"]
 windows-sspi = []  # Reserved for future use
 trace = ["dep:tracing", "dep:tracing-subscriber"]
 
@@ -38,8 +38,9 @@ subtle = "2.5"
 tokio = { version = "1.47", features = ["rt-multi-thread", "net", "time"], optional = true }
 hickory-resolver = { version = "0.26", optional = true }
 tempfile = { version = "3.10", optional = true }
-rustls = { version = "0.23", optional = true }
-ring = { version = "0.17", optional = true }
+# No crypto provider: the caller supplies the connection, and with it the provider.
+rustls = { version = "0.23", default-features = false, features = ["std"], optional = true }
+sha2 = { version = "0.11", optional = true }
 
 # Unix-only GSS-API - exact version for security
 [target.'cfg(unix)'.dependencies]

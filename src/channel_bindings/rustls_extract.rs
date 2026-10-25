@@ -107,7 +107,7 @@ pub fn extract_rustls_bindings(
 #[allow(dead_code)]
 #[allow(clippy::unnecessary_wraps)] // Returns Result for future extensibility (signature algorithm parsing)
 fn hash_certificate_for_binding(cert_der: &[u8]) -> Result<Vec<u8>> {
-    use ring::digest;
+    use sha2::{Digest, Sha256};
 
     // Parse the certificate to determine signature algorithm
     // For now, we'll use SHA-256 as a safe default
@@ -117,8 +117,7 @@ fn hash_certificate_for_binding(cert_der: &[u8]) -> Result<Vec<u8>> {
     // - If signature uses MD5 or SHA-1, use SHA-256
     // - Otherwise use the hash from the signature algorithm
 
-    let hash = digest::digest(&digest::SHA256, cert_der);
-    Ok(hash.as_ref().to_vec())
+    Ok(Sha256::digest(cert_der).to_vec())
 }
 
 /// Extract channel bindings from a rustls `ServerConnection`

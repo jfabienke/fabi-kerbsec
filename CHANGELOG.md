@@ -73,6 +73,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `Context` is no longer `Sync` (it was documented as `!Sync` but was `Sync`).
 - **Breaking:** New `Error` variants: `ConfidentialityNotProvided`, `HandshakeState`,
   `FlagNotNegotiated`.
+- `channel-bindings-rustls` no longer compiles C: rustls is built without a crypto
+  provider (the caller's connection brings its own), and the tls-server-end-point
+  certificate hash uses `sha2` instead of `ring`.
 
 ### Removed (breaking)
 - `EncryptionType` and the `allow-weak-crypto` feature (they never affected
