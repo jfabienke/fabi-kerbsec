@@ -309,6 +309,100 @@ fn dce_iov_roundtrip_both_directions() {
     assert_eq!(stub, [0u8; 32], "the rejected stub is zeroized");
 }
 
+/// Acceptor-side `gss_get_mic` through the raw handle.
+#[allow(clippy::needless_pass_by_ref_mut)] // the call advances `server`'s sequence state
+fn server_get_mic(server: &mut ServerCtx, message: &[u8]) -> Vec<u8> {
+    use fabi_kerbsec::ffi;
+
+    let mut input = ffi::gss_buffer_desc {
+        length: message.len(),
+        value: message.as_ptr().cast_mut().cast(),
+    };
+    let mut output = ffi::gss_buffer_desc {
+        length: 0,
+        value: std::ptr::null_mut(),
+    };
+    let mut minor = 0;
+    // SAFETY: `input` outlives the call and is only read; GSS allocates
+    // `output`, which is released below.
+    let major = unsafe {
+        ffi::gss_get_mic(
+            &mut minor,
+            server.raw_ctx().cast(),
+            ffi::GSS_C_QOP_DEFAULT,
+            &mut input,
+            &mut output,
+        )
+    };
+    assert_eq!(
+        major,
+        ffi::GSS_S_COMPLETE,
+        "server get_mic, minor {minor:#x}"
+    );
+    // SAFETY: GSS reports `length` valid bytes at `value`, and allocated them.
+    unsafe {
+        let mic = std::slice::from_raw_parts(output.value.cast::<u8>(), output.length).to_vec();
+        ffi::gss_release_buffer(&mut minor, &mut output);
+        mic
+    }
+}
+
+/// Acceptor-side `gss_verify_mic`; whether the MIC matched.
+#[allow(clippy::needless_pass_by_ref_mut)] // as in `server_get_mic`
+fn server_verify_mic(server: &mut ServerCtx, message: &[u8], mic: &[u8]) -> bool {
+    use fabi_kerbsec::ffi;
+
+    let mut message_buf = ffi::gss_buffer_desc {
+        length: message.len(),
+        value: message.as_ptr().cast_mut().cast(),
+    };
+    let mut token_buf = ffi::gss_buffer_desc {
+        length: mic.len(),
+        value: mic.as_ptr().cast_mut().cast(),
+    };
+    let (mut minor, mut qop_state) = (0, 0);
+    // SAFETY: both buffers outlive the call and are only read.
+    let major = unsafe {
+        ffi::gss_verify_mic(
+            &mut minor,
+            server.raw_ctx().cast(),
+            &mut message_buf,
+            &mut token_buf,
+            &mut qop_state,
+        )
+    };
+    major == ffi::GSS_S_COMPLETE
+}
+
+/// DCE/RPC packet integrity signs with MIC tokens. Tampered messages are tried
+/// before the genuine ones so a rejection never consumes a sequence number.
+#[test]
+#[ignore = "requires a KDC; run scripts/e2e-kdc.sh"]
+fn mic_roundtrip_both_directions() {
+    use fabi_kerbsec::security::gss_iov::DCE_INTEGRITY_AUTH_VALUE_LEN;
+
+    let (mut client, mut server) = establish(AuthLevel::Integrity);
+
+    let request = b"PDU header, stub and sec_trailer";
+    let mic = client.get_mic(request).expect("client MIC");
+    assert_eq!(
+        mic.len(),
+        DCE_INTEGRITY_AUTH_VALUE_LEN,
+        "MIC = integrity auth_value"
+    );
+    let mut tampered = request.to_vec();
+    tampered[0] ^= 0x01;
+    assert!(!server_verify_mic(&mut server, &tampered, &mic));
+    assert!(server_verify_mic(&mut server, request, &mic));
+
+    let response = b"a response the server signed";
+    let mic = server_get_mic(&mut server, response);
+    let mut tampered = response.to_vec();
+    tampered[0] ^= 0x01;
+    assert!(client.verify_mic(&tampered, &mic).is_err());
+    client.verify_mic(response, &mic).expect("client verify");
+}
+
 #[test]
 #[ignore = "requires a KDC; run scripts/e2e-kdc.sh"]
 fn handshake_state_is_enforced() {

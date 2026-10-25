@@ -339,6 +339,24 @@ impl GssContext {
         super::gss_iov::wrap_size_limit_real(ctx, conf_req, max_wrapped)
     }
 
+    /// Compute a MIC over `message` (`gss_get_mic`)
+    pub fn get_mic(&mut self, message: &[u8]) -> Result<Vec<u8>> {
+        let ctx = self.inner.as_mut().ok_or(Error::NotEstablished)?;
+        if !self.established {
+            return Err(Error::NotEstablished);
+        }
+        super::gss_iov::get_mic_real(ctx, message)
+    }
+
+    /// Check a MIC over `message` (`gss_verify_mic`)
+    pub fn verify_mic(&mut self, message: &[u8], mic: &[u8]) -> Result<()> {
+        let ctx = self.inner.as_mut().ok_or(Error::NotEstablished)?;
+        if !self.established {
+            return Err(Error::NotEstablished);
+        }
+        super::gss_iov::verify_mic_real(ctx, message, mic)
+    }
+
     /// DCE/RPC `auth_value` length for a padded stub of `padded_stub_len` bytes
     ///
     /// Asks the mechanism once the context is established; before that, returns

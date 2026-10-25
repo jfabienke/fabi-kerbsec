@@ -265,6 +265,24 @@ extern "C" {
         conf_state: *mut c_int,
         qop_state: *mut gss_qop_t,
     ) -> OM_uint32;
+
+    /// Compute a MIC (integrity token) over a message (RFC 2744 `gss_get_mic`)
+    pub fn gss_get_mic(
+        minor_status: *mut OM_uint32,
+        context_handle: gss_ctx_id_t,
+        qop_req: gss_qop_t,
+        message_buffer: gss_buffer_t,
+        message_token: gss_buffer_t,
+    ) -> OM_uint32;
+
+    /// Check a MIC over a message (RFC 2744 `gss_verify_mic`)
+    pub fn gss_verify_mic(
+        minor_status: *mut OM_uint32,
+        context_handle: gss_ctx_id_t,
+        message_buffer: gss_buffer_t,
+        token_buffer: gss_buffer_t,
+        qop_state: *mut gss_qop_t,
+    ) -> OM_uint32;
     /// Display a GSS-API status code as a human-readable string
     ///
     /// # Parameters

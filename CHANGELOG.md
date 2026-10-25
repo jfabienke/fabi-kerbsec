@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dce_auth_value_len` for the 4-buffer `GSS_C_DCE_STYLE` layout of MS-RPCE 3.3.1.5.2.2
   (header and `sec_trailer` `SIGN_ONLY`, stub `DATA`, token `HEADER`). Linux with the
   `iov` feature; an error elsewhere.
+- **MIC tokens** - `Context::get_mic` and `verify_mic` (`gss_get_mic` / `gss_verify_mic`). DCE/RPC
+  packet integrity signs with a MIC, not a wrap token; checked against Windows Server 2022.
 
 ### Fixed
 - Target principal: `HOST/fqdn` was imported as a host-based service name, so the KDC

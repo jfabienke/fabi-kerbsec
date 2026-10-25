@@ -913,6 +913,90 @@ pub fn unwrap_dce_iov_real(
     }
 }
 
+/// Compute a MIC (`gss_get_mic`) over `message`.
+///
+/// DCE/RPC packet integrity uses MIC tokens, not wrap tokens: the signature is
+/// a MIC over the PDU header, stub and `sec_trailer` (or the stub alone when
+/// header signing was not negotiated).
+pub fn get_mic_real(ctx: &mut ClientCtx, message: &[u8]) -> Result<Vec<u8>> {
+    let ctx_handle = raw_handle(ctx)?;
+
+    let mut input = ffi::gss_buffer_desc {
+        length: message.len(),
+        value: message.as_ptr().cast_mut().cast(),
+    };
+    let mut output = ffi::gss_buffer_desc {
+        length: 0,
+        value: ptr::null_mut(),
+    };
+    let mut minor_status: ffi::OM_uint32 = 0;
+
+    // SAFETY: `input` points at `message`, which outlives the call and is only
+    // read; `output` is filled by GSS and released below.
+    let major_status = unsafe {
+        ffi::gss_get_mic(
+            &mut minor_status,
+            ctx_handle,
+            ffi::GSS_C_QOP_DEFAULT,
+            &mut input,
+            &mut output,
+        )
+    };
+
+    if major_status != ffi::GSS_S_COMPLETE {
+        #[cfg(feature = "trace")]
+        error!(
+            target: "kerbsec::iov",
+            major = format_args!("{:#x}", major_status),
+            minor = format_args!("{:#x}", minor_status),
+            "gss_get_mic failed"
+        );
+        return Err(gss_error(major_status, minor_status));
+    }
+
+    Ok(take_gss_buffer(&mut output))
+}
+
+/// Check a MIC (`gss_verify_mic`) over `message`.
+pub fn verify_mic_real(ctx: &mut ClientCtx, message: &[u8], mic: &[u8]) -> Result<()> {
+    let ctx_handle = raw_handle(ctx)?;
+
+    let mut message_buf = ffi::gss_buffer_desc {
+        length: message.len(),
+        value: message.as_ptr().cast_mut().cast(),
+    };
+    let mut token_buf = ffi::gss_buffer_desc {
+        length: mic.len(),
+        value: mic.as_ptr().cast_mut().cast(),
+    };
+    let mut minor_status: ffi::OM_uint32 = 0;
+    let mut qop_state: ffi::gss_qop_t = 0;
+
+    // SAFETY: both buffers point at slices that outlive the call and are only
+    // read; `ctx_handle` is owned by `ctx`, which is mutably borrowed for it.
+    let major_status = unsafe {
+        ffi::gss_verify_mic(
+            &mut minor_status,
+            ctx_handle,
+            &mut message_buf,
+            &mut token_buf,
+            &mut qop_state,
+        )
+    };
+
+    if major_status != ffi::GSS_S_COMPLETE {
+        #[cfg(feature = "trace")]
+        error!(
+            target: "kerbsec::iov",
+            major = format_args!("{:#x}", major_status),
+            minor = format_args!("{:#x}", minor_status),
+            "gss_verify_mic failed"
+        );
+        return Err(gss_error(major_status, minor_status));
+    }
+    Ok(())
+}
+
 /// Convert GSS error to our Error type
 fn gss_error(major: ffi::OM_uint32, minor: ffi::OM_uint32) -> Error {
     let text = display_gss_status(major, minor);

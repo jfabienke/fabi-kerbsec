@@ -351,6 +351,51 @@ impl Context {
         }
     }
 
+    /// Compute a MIC (integrity token) over `message` (`gss_get_mic`)
+    ///
+    /// DCE/RPC packet integrity (`PKT_INTEGRITY`) signs with a MIC: over the PDU
+    /// header, stub and `sec_trailer` when header signing was negotiated, else
+    /// over the stub alone. The MIC is the PDU's `auth_value`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the context is not established or the call fails.
+    pub fn get_mic(&mut self, message: &[u8]) -> Result<Vec<u8>> {
+        #[cfg(unix)]
+        {
+            self.inner.get_mic(message)
+        }
+
+        #[cfg(not(unix))]
+        {
+            let _ = message;
+            Err(crate::error::Error::Config(
+                "kerbsec only supports Unix platforms".into(),
+            ))
+        }
+    }
+
+    /// Check a MIC over `message` (`gss_verify_mic`)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the context is not established, or the MIC does not
+    /// match (tampered, wrong key, or replayed).
+    pub fn verify_mic(&mut self, message: &[u8], mic: &[u8]) -> Result<()> {
+        #[cfg(unix)]
+        {
+            self.inner.verify_mic(message, mic)
+        }
+
+        #[cfg(not(unix))]
+        {
+            let _ = (message, mic);
+            Err(crate::error::Error::Config(
+                "kerbsec only supports Unix platforms".into(),
+            ))
+        }
+    }
+
     /// DCE/RPC `auth_value` length for a padded stub of `padded_stub_len` bytes
     ///
     /// Use it to size the `auth_length` field before wrapping. Once the context
