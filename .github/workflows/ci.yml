@@ -118,8 +118,12 @@ jobs:
           components: clippy
 
       - name: Point bindgen at the active SDK
-        # libgssapi-sys hard-codes the Command Line Tools SDK path for <GSS/GSS.h>
-        run: echo "BINDGEN_EXTRA_CLANG_ARGS=-F$(xcrun --show-sdk-path)/System/Library/Frameworks" >> "$GITHUB_ENV"
+        # libgssapi-sys hard-codes the Command Line Tools SDK path for <GSS/GSS.h>.
+        # Set the per-target variable: bindgen prefers it over the generic one, and
+        # .cargo/config.toml would otherwise fill it with the Command Line Tools SDK.
+        run: |
+          target="$(rustc -vV | sed -n 's/^host: //p' | tr - _)"
+          echo "BINDGEN_EXTRA_CLANG_ARGS_${target}=-F$(xcrun --show-sdk-path)/System/Library/Frameworks" >> "$GITHUB_ENV"
 
       - name: Install MIT Kerberos (KDC and kinit for the e2e tests)
         run: brew list krb5 >/dev/null 2>&1 || brew install krb5
