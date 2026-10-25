@@ -1,11 +1,11 @@
-//! Checks the hand-written FFI declarations in `kerbsec::ffi` against the
+//! Checks the hand-written FFI declarations in `fabi_kerbsec::ffi` against the
 //! bindgen output of `libgssapi-sys`, which is generated from the real GSS-API
 //! headers installed on the build machine. A mismatch here is memory unsafety at
 //! the FFI boundary, so constants and struct layouts are compared, not re-typed.
 
 #![cfg(unix)]
 
-use kerbsec::ffi;
+use fabi_kerbsec::ffi;
 use libgssapi_sys as sys;
 use std::mem::{align_of, offset_of, size_of};
 

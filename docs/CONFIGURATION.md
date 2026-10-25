@@ -21,7 +21,7 @@ This guide provides comprehensive documentation for configuring kerbsec in vario
 The minimum required configuration needs only a realm and target host:
 
 ```rust
-use kerbsec::KerberosConfig;
+use fabi_kerbsec::KerberosConfig;
 
 let config = KerberosConfig::builder()
     .realm("CORP.EXAMPLE.COM")
@@ -115,7 +115,7 @@ kerbsec supports three authentication levels:
 Full encryption and integrity protection:
 
 ```rust
-use kerbsec::AuthLevel;
+use fabi_kerbsec::AuthLevel;
 
 let config = KerberosConfig::builder()
     .realm("CORP.EXAMPLE.COM")
@@ -244,7 +244,7 @@ let config = KerberosConfig::builder()
 Channel bindings tie Kerberos to the transport layer:
 
 ```rust
-use kerbsec::channel_bindings::{ChannelBindings, ChannelBindingType};
+use fabi_kerbsec::channel_bindings::{ChannelBindings, ChannelBindingType};
 
 let cb = ChannelBindings {
     initiator_addrtype: 0,
@@ -268,7 +268,7 @@ Configure cargo features in `Cargo.toml`:
 
 ```toml
 [dependencies]
-kerbsec = {
+fabi-kerbsec = {
     version = "0.2.0",
     features = [
         "dns",               # DNS canonicalization (default)

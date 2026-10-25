@@ -41,7 +41,7 @@ This is an internal library. Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-kerbsec = { path = "../kerbsec", features = ["dns", "runtime", "ccache"] }
+fabi-kerbsec = { path = "../kerbsec", features = ["dns", "runtime", "ccache"] }
 ```
 
 ### Prerequisites
@@ -55,7 +55,7 @@ kerbsec = { path = "../kerbsec", features = ["dns", "runtime", "ccache"] }
 ### Basic DCE/RPC Authentication
 
 ```rust
-use kerbsec::{Context, KerberosConfig, AuthLevel};
+use fabi_kerbsec::{Context, KerberosConfig, AuthLevel};
 
 // Configure with DNS canonicalization and DCE-style (default)
 let config = KerberosConfig::builder()
@@ -140,7 +140,7 @@ kerbsec is designed as a thin wrapper around the system GSS-API:
 ```
 Application (e.g., linux-wmi)
     ↓
-kerbsec::Context (Rust API)
+fabi_kerbsec::Context (Rust API)
     ↓
 libgssapi (Rust bindings)
     ↓

@@ -5,7 +5,7 @@
 
 #[cfg(test)]
 mod iov_tests {
-    use kerbsec::{AuthLevel, Context, Error, KerberosConfig};
+    use fabi_kerbsec::{AuthLevel, Context, Error, KerberosConfig};
 
     fn context() -> Context {
         let config = KerberosConfig::builder()
@@ -55,7 +55,7 @@ mod iov_tests {
 
 #[cfg(test)]
 mod dce_handshake_tests {
-    use kerbsec::{Context, Error, KerberosConfig};
+    use fabi_kerbsec::{Context, Error, KerberosConfig};
 
     #[test]
     fn test_ap_rep_before_initial_token_is_rejected() {
@@ -95,7 +95,7 @@ mod dce_handshake_tests {
 
 #[cfg(test)]
 mod error_mapping_tests {
-    use kerbsec::Error;
+    use fabi_kerbsec::Error;
 
     #[test]
     fn test_error_display() {

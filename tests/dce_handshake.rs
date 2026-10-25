@@ -5,7 +5,7 @@
 
 #[cfg(test)]
 mod tests {
-    use kerbsec::{AuthLevel, KerberosConfig};
+    use fabi_kerbsec::{AuthLevel, KerberosConfig};
 
     /// Test that configuration builder works correctly
     #[test]
@@ -90,7 +90,7 @@ mod tests {
     #[cfg(unix)]
     mod unix_only {
         use super::*;
-        use kerbsec::Context;
+        use fabi_kerbsec::Context;
 
         /// Test that Context creation succeeds on Unix
         ///

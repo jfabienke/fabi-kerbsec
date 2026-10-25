@@ -5,7 +5,7 @@
 //!
 //! Run with: cargo run --example `ccache_demo` --features ccache
 
-use kerbsec::ccache::{
+use fabi_kerbsec::ccache::{
     create_cache, CacheBackend, CacheConfig, Credential, CredentialCache, EncType, KeyBlock,
     NameType, Principal, Times,
 };
@@ -135,7 +135,7 @@ fn demo_credential(now: u32) -> Credential {
 }
 
 /// Print the SPNs in `cache` under `label`
-fn print_tickets(cache: &dyn CredentialCache, label: &str) -> kerbsec::Result<()> {
+fn print_tickets(cache: &dyn CredentialCache, label: &str) -> fabi_kerbsec::Result<()> {
     println!("\n{label}:");
     let tickets = cache.list()?;
     if tickets.is_empty() {

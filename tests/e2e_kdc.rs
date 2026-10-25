@@ -5,7 +5,7 @@
 
 #![cfg(unix)]
 
-use kerbsec::{AuthLevel, Context, Error, KerberosConfig};
+use fabi_kerbsec::{AuthLevel, Context, Error, KerberosConfig};
 use libgssapi::context::{CtxFlags, SecurityContext, ServerCtx};
 use libgssapi::credential::{Cred, CredUsage};
 use libgssapi::oid::{OidSet, GSS_MECH_KRB5};
@@ -49,7 +49,7 @@ fn establish(auth: AuthLevel) -> (Context, ServerCtx) {
     (client, server)
 }
 
-fn concat(w: &kerbsec::IovWrap) -> Vec<u8> {
+fn concat(w: &fabi_kerbsec::IovWrap) -> Vec<u8> {
     [&w.header[..], &w.payload[..], &w.trailer[..]].concat()
 }
 

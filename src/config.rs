@@ -8,7 +8,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use kerbsec::{KerberosConfig, AuthLevel};
+//! use fabi_kerbsec::{KerberosConfig, AuthLevel};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let config = KerberosConfig::builder()
@@ -40,7 +40,7 @@ use tracing::{debug, instrument, warn};
 /// # Example
 ///
 /// ```
-/// use kerbsec::ServiceClass;
+/// use fabi_kerbsec::ServiceClass;
 ///
 /// // Build SPN for a web server
 /// let http_spn = ServiceClass::Http.spn("web.example.com");
@@ -337,7 +337,7 @@ impl KerberosConfigBuilder {
     /// # Example
     ///
     /// ```
-    /// use kerbsec::KerberosConfig;
+    /// use fabi_kerbsec::KerberosConfig;
     ///
     /// let config = KerberosConfig::builder()
     ///     .realm("CORP.EXAMPLE.COM")

@@ -17,13 +17,13 @@ This guide explains how to integrate kerbsec with various DCE/RPC transports and
 
 ```toml
 [dependencies]
-kerbsec = { path = "../kerbsec", features = ["dns", "runtime", "iov"] }
+fabi-kerbsec = { path = "../kerbsec", features = ["dns", "runtime", "iov"] }
 ```
 
 ### 2. Initialize Context
 
 ```rust
-use kerbsec::{Context, KerberosConfig, AuthLevel};
+use fabi_kerbsec::{Context, KerberosConfig, AuthLevel};
 
 async fn create_context(realm: &str, target: &str) -> Result<Context> {
     // Build config with DNS canonicalization
@@ -138,7 +138,7 @@ async fn send_protected_request(
 ### SMB Session Setup
 
 ```rust
-use kerbsec::{Context, AuthLevel};
+use fabi_kerbsec::{Context, AuthLevel};
 
 struct SmbClient {
     transport: TcpStream,
@@ -213,7 +213,7 @@ impl SmbClient {
 ### linux-wmi Integration
 
 ```rust
-use kerbsec::{Context, AuthLevel};
+use fabi_kerbsec::{Context, AuthLevel};
 use linux_wmi::{WmiClient, DcomTransport};
 
 async fn wmi_with_kerberos(
@@ -359,7 +359,7 @@ impl KerberosTransport for TcpTransport {
 ```rust
 #[cfg(test)]
 mod tests {
-    use kerbsec::{Context, KerberosConfig};
+    use fabi_kerbsec::{Context, KerberosConfig};
 
     #[tokio::test]
     async fn test_integration() {

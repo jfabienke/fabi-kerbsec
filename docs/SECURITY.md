@@ -388,7 +388,7 @@ let config = KerberosConfig::builder()
 Channel bindings tie the Kerberos authentication to the underlying transport, preventing token forwarding attacks:
 
 ```rust
-use kerbsec::channel_bindings::{ChannelBindings, ChannelBindingType};
+use fabi_kerbsec::channel_bindings::{ChannelBindings, ChannelBindingType};
 
 // Create TLS channel bindings
 let cb = ChannelBindings {

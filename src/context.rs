@@ -13,7 +13,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use kerbsec::{Context, KerberosConfig};
+//! use fabi_kerbsec::{Context, KerberosConfig};
 //!
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let config = KerberosConfig::builder()
@@ -85,7 +85,7 @@ use crate::security::gss::GssContext;
 ///
 /// ```compile_fail
 /// fn require_sync<T: Sync>() {}
-/// require_sync::<kerbsec::Context>();
+/// require_sync::<fabi_kerbsec::Context>();
 /// ```
 pub struct Context {
     #[cfg(unix)]

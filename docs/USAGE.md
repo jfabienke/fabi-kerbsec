@@ -184,7 +184,7 @@ kinit user@REALM.COM
 ### Programmatic Cache Selection
 
 ```rust
-use kerbsec::KerberosConfig;
+use fabi_kerbsec::KerberosConfig;
 
 // Use environment variable (default)
 let config = KerberosConfig::builder()
@@ -212,7 +212,7 @@ let config = KerberosConfig::builder()
 kerbsec uses the Kerberos V5 mechanism OID as defined in RFC 1964:
 
 ```rust
-use kerbsec::{Context, KRB5_MECH_OID};
+use fabi_kerbsec::{Context, KRB5_MECH_OID};
 
 let ctx = Context::new(config)?;
 
@@ -415,7 +415,7 @@ IOV (Input/Output Vector) operations provide zero-copy message protection but av
 ### Detecting IOV Support
 
 ```rust
-use kerbsec::ffi;
+use fabi_kerbsec::ffi;
 
 if ffi::has_iov_support() {
     println!("Platform has native IOV support");
