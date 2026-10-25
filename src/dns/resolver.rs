@@ -1,7 +1,7 @@
 //! DNS resolver for FQDN canonicalization and KDC discovery
 
 use crate::error::{Error, Result};
-use hickory_resolver::proto::rr::RecordType;
+use hickory_resolver::proto::rr::{RData, RecordType};
 use hickory_resolver::Resolver;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -44,7 +44,8 @@ pub async fn canonicalize_fqdn(host: &str, dns_timeout: Duration) -> Result<Stri
         // Create resolver using system configuration (/etc/resolv.conf)
         let resolver = Resolver::builder_tokio()
             .map_err(|e| Error::Dns(anyhow::anyhow!("Failed to create resolver builder: {e}")))?
-            .build();
+            .build()
+            .map_err(|e| Error::Dns(anyhow::anyhow!("Failed to create resolver: {e}")))?;
 
         let response = resolver
             .lookup_ip(host)
@@ -54,8 +55,9 @@ pub async fn canonicalize_fqdn(host: &str, dns_timeout: Duration) -> Result<Stri
         let canonical = canonical_owner_name(
             response
                 .as_lookup()
-                .record_iter()
-                .map(|r| (r.record_type(), r.name().to_ascii())),
+                .answers()
+                .iter()
+                .map(|r| (r.record_type(), r.name.to_ascii())),
         )
         .ok_or_else(|| {
             Error::CanonicalizationFailed(format!("{host}: no address records in answer"))
@@ -128,20 +130,20 @@ pub async fn discover_kdc(realm: &str, dns_timeout: Duration) -> Result<Vec<Stri
         // Create resolver using system configuration
         let resolver = Resolver::builder_tokio()
             .map_err(|e| Error::Dns(anyhow::anyhow!("Failed to create resolver builder: {e}")))?
-            .build();
+            .build()
+            .map_err(|e| Error::Dns(anyhow::anyhow!("Failed to create resolver: {e}")))?;
 
         match resolver.srv_lookup(&srv_name).await {
             Ok(response) => {
                 let kdcs = order_srv_targets(
                     response
+                        .answers()
                         .iter()
-                        .map(|srv| {
-                            (
-                                srv.priority(),
-                                srv.weight(),
-                                srv.target().to_ascii(),
-                                srv.port(),
-                            )
+                        .filter_map(|r| match &r.data {
+                            RData::SRV(srv) => {
+                                Some((srv.priority, srv.weight, srv.target.to_ascii(), srv.port))
+                            }
+                            _ => None,
                         })
                         .collect(),
                 );

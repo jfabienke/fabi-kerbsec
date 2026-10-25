@@ -36,7 +36,7 @@ subtle = "2.5"
 
 # Optional dependencies - pinned for stability
 tokio = { version = "1.47", features = ["rt-multi-thread", "net", "time"], optional = true }
-hickory-resolver = { version = "0.25", optional = true }
+hickory-resolver = { version = "0.26", optional = true }
 tempfile = { version = "3.10", optional = true }
 rustls = { version = "0.23", optional = true }
 ring = { version = "0.17", optional = true }
