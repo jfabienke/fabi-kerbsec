@@ -192,6 +192,29 @@ extern "C" {
         iov: gss_iov_buffer_t,
         iov_count: c_int,
     ) -> OM_uint32;
+
+    /// Query output buffer lengths for `gss_wrap_iov`
+    ///
+    /// Populates the `length` fields of `HEADER`, `PADDING`, and `TRAILER`
+    /// descriptors in `iov` for the given `DATA` and `SIGN_ONLY` buffers.
+    ///
+    /// # Parameters
+    /// - `minor_status`: Output for mechanism-specific status code
+    /// - `context_handle`: Established security context
+    /// - `conf_req_flag`: Non-zero to request confidentiality
+    /// - `qop_req`: Quality of protection (use `GSS_C_QOP_DEFAULT`)
+    /// - `conf_state`: Output indicating if confidentiality would be applied
+    /// - `iov`: Array of IOV buffer descriptors
+    /// - `iov_count`: Number of IOV buffers
+    pub fn gss_wrap_iov_length(
+        minor_status: *mut OM_uint32,
+        context_handle: gss_ctx_id_t,
+        conf_req_flag: c_int,
+        qop_req: gss_qop_t,
+        conf_state: *mut c_int,
+        iov: gss_iov_buffer_t,
+        iov_count: c_int,
+    ) -> OM_uint32;
 }
 
 // External functions - Available on all platforms

@@ -339,6 +339,55 @@ impl GssContext {
         super::gss_iov::wrap_size_limit_real(ctx, conf_req, max_wrapped)
     }
 
+    /// DCE/RPC `auth_value` length for a padded stub of `padded_stub_len` bytes
+    ///
+    /// Asks the mechanism once the context is established; before that, returns
+    /// the RFC 4121 AES token length.
+    pub fn dce_auth_value_len(&self, conf_req: bool, padded_stub_len: usize) -> Result<usize> {
+        let ctx = if self.established {
+            self.inner.as_ref()
+        } else {
+            None
+        };
+        super::gss_iov::dce_auth_value_len_real(ctx, conf_req, padded_stub_len)
+    }
+
+    /// Protect a DCE/RPC PDU using the 4-buffer `GSS_C_DCE_STYLE` IOV layout
+    /// (`SIGN_ONLY` header, `DATA` stub, `SIGN_ONLY` `sec_trailer`, `HEADER` `auth_value`)
+    ///
+    /// The stub is encrypted in place when `conf_req` is set; the returned
+    /// bytes are the `auth_value`.
+    pub fn wrap_dce_iov(
+        &mut self,
+        header: &[u8],
+        stub: &mut [u8],
+        sec_trailer: &[u8],
+        conf_req: bool,
+    ) -> Result<Vec<u8>> {
+        let ctx = self.inner.as_mut().ok_or(Error::NotEstablished)?;
+        if !self.established {
+            return Err(Error::NotEstablished);
+        }
+        super::gss_iov::wrap_dce_iov_real(ctx, header, stub, sec_trailer, conf_req)
+    }
+
+    /// Verify and (when `expect_conf` is set) decrypt in place a DCE/RPC PDU
+    /// using the 4-buffer `GSS_C_DCE_STYLE` IOV layout
+    pub fn unwrap_dce_iov(
+        &mut self,
+        header: &[u8],
+        stub: &mut [u8],
+        sec_trailer: &[u8],
+        auth_value: &[u8],
+        expect_conf: bool,
+    ) -> Result<()> {
+        let ctx = self.inner.as_mut().ok_or(Error::NotEstablished)?;
+        if !self.established {
+            return Err(Error::NotEstablished);
+        }
+        super::gss_iov::unwrap_dce_iov_real(ctx, header, stub, sec_trailer, auth_value, expect_conf)
+    }
+
     /// Check if delegated credentials are available
     ///
     /// Returns true if delegation was both requested AND successfully

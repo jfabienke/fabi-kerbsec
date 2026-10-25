@@ -137,6 +137,51 @@ fn wrap_size_limit_uses_the_mechanism() {
     assert!(client.wrap_size_limit(1024, false) >= limit);
 }
 
+/// The DCE layout needs `gss_wrap_iov`, which is Linux-only here. libgssapi's
+/// `ServerCtx` has no IOV unwrap, so this checks the initiator side: the wrap
+/// succeeds and the `auth_value` has the MS-KILE AES length the mechanism reports.
+#[cfg(all(target_os = "linux", feature = "iov"))]
+#[test]
+#[ignore = "requires a KDC; run scripts/e2e-kdc.sh"]
+fn dce_iov_wrap_yields_ms_kile_auth_value_lengths() {
+    use fabi_kerbsec::security::gss_iov::{
+        DCE_INTEGRITY_AUTH_VALUE_LEN, DCE_PRIVACY_AUTH_VALUE_LEN,
+    };
+
+    let (mut client, _server) = establish(AuthLevel::Privacy);
+    let header = [0x05, 0x00, 0x00, 0x03, 0x10, 0x00, 0x00, 0x00].repeat(3);
+    let sec_trailer = [0x10, 0x06, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00];
+    let plain = [0xAA_u8; 32];
+
+    let mut stub = plain;
+    let sealed = client
+        .wrap_dce_iov(&header, &mut stub, &sec_trailer, true)
+        .expect("sealed DCE wrap");
+    assert_eq!(sealed.len(), DCE_PRIVACY_AUTH_VALUE_LEN);
+    assert_eq!(
+        client.dce_auth_value_len(true, 32).expect("len"),
+        sealed.len()
+    );
+    assert_ne!(stub, plain, "the stub is encrypted in place");
+
+    let mut stub = plain;
+    let signed = client
+        .wrap_dce_iov(&header, &mut stub, &sec_trailer, false)
+        .expect("signed DCE wrap");
+    assert_eq!(signed.len(), DCE_INTEGRITY_AUTH_VALUE_LEN);
+    assert_eq!(
+        client.dce_auth_value_len(false, 32).expect("len"),
+        signed.len()
+    );
+    assert_eq!(stub, plain, "an integrity-only stub is left as is");
+
+    let mut misaligned = [0u8; 12];
+    assert!(matches!(
+        client.wrap_dce_iov(&header, &mut misaligned, &sec_trailer, true),
+        Err(Error::Iov(_))
+    ));
+}
+
 #[test]
 #[ignore = "requires a KDC; run scripts/e2e-kdc.sh"]
 fn handshake_state_is_enforced() {

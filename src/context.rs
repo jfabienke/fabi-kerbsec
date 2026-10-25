@@ -351,6 +351,98 @@ impl Context {
         }
     }
 
+    /// DCE/RPC `auth_value` length for a padded stub of `padded_stub_len` bytes
+    ///
+    /// Use it to size the `auth_length` field before wrapping. Once the context
+    /// is established this asks the mechanism; before that it returns the
+    /// RFC 4121 AES length.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a sealed stub is not a multiple of 16 bytes, or if
+    /// the mechanism cannot answer.
+    pub fn dce_auth_value_len(&self, conf_req: bool, padded_stub_len: usize) -> Result<usize> {
+        #[cfg(unix)]
+        {
+            self.inner.dce_auth_value_len(conf_req, padded_stub_len)
+        }
+
+        #[cfg(not(unix))]
+        {
+            let _ = (conf_req, padded_stub_len);
+            Err(crate::error::Error::Config(
+                "kerbsec only supports Unix platforms".into(),
+            ))
+        }
+    }
+
+    /// Protect a DCE/RPC PDU using the 4-buffer `GSS_C_DCE_STYLE` IOV layout
+    /// (`SIGN_ONLY` header, `DATA` stub, `SIGN_ONLY` `sec_trailer`, `HEADER` `auth_value`)
+    ///
+    /// The stub is encrypted in place when `conf_req` is set (`PKT_PRIVACY`);
+    /// the returned bytes are the PDU's `auth_value`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Context not established
+    /// - A sealed stub is not a multiple of 16 bytes
+    /// - Confidentiality was requested but not applied
+    /// - The platform lacks DCE IOV support (it needs Linux with the `iov` feature)
+    pub fn wrap_dce_iov(
+        &mut self,
+        header: &[u8],
+        stub: &mut [u8],
+        sec_trailer: &[u8],
+        conf_req: bool,
+    ) -> Result<Vec<u8>> {
+        #[cfg(unix)]
+        {
+            self.inner.wrap_dce_iov(header, stub, sec_trailer, conf_req)
+        }
+
+        #[cfg(not(unix))]
+        {
+            let _ = (header, stub, sec_trailer, conf_req);
+            Err(crate::error::Error::Config(
+                "kerbsec only supports Unix platforms".into(),
+            ))
+        }
+    }
+
+    /// Verify and (when `expect_conf` is set) decrypt in place a DCE/RPC PDU
+    /// using the 4-buffer `GSS_C_DCE_STYLE` IOV layout
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Context not established
+    /// - The PDU is invalid or tampered (the stub is then zeroized)
+    /// - `expect_conf` is set but the PDU was not encrypted
+    /// - The platform lacks DCE IOV support (it needs Linux with the `iov` feature)
+    pub fn unwrap_dce_iov(
+        &mut self,
+        header: &[u8],
+        stub: &mut [u8],
+        sec_trailer: &[u8],
+        auth_value: &[u8],
+        expect_conf: bool,
+    ) -> Result<()> {
+        #[cfg(unix)]
+        {
+            self.inner
+                .unwrap_dce_iov(header, stub, sec_trailer, auth_value, expect_conf)
+        }
+
+        #[cfg(not(unix))]
+        {
+            let _ = (header, stub, sec_trailer, auth_value, expect_conf);
+            Err(crate::error::Error::Config(
+                "kerbsec only supports Unix platforms".into(),
+            ))
+        }
+    }
+
     /// Calculate maximum message size for wrapping
     ///
     /// Given a desired wrapped token size, returns the maximum message size

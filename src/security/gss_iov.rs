@@ -78,6 +78,79 @@ const fn require_conf_applied(
     Ok(())
 }
 
+/// DCE-style (`GSS_C_DCE_STYLE`) `auth_value` length for `PKT_PRIVACY`.
+///
+/// Per RFC 4121 and MS-KILE 3.4.5.4.1 (AES-128/256), which has the sender set the
+/// extra count (EC) to one 16-byte block: 16-byte token header + 16-byte
+/// confounder + 16-byte EC filler + 16-byte encrypted header copy + 12-byte HMAC,
+/// the last three rotated in front of the confounder by RRC (28) + EC.
+pub const DCE_PRIVACY_AUTH_VALUE_LEN: usize = 76;
+
+/// DCE-style (`GSS_C_DCE_STYLE`) `auth_value` length for `PKT_INTEGRITY`.
+///
+/// Per RFC 4121 and MS-KILE 3.4.5.4.1 (AES-128/256):
+/// 16-byte token header + 12-byte rotated HMAC.
+pub const DCE_INTEGRITY_AUTH_VALUE_LEN: usize = 28;
+
+/// Construct the 4-element `gss_iov_buffer_desc` array for DCE/RPC PDU protection.
+///
+/// Follows MIT Kerberos (`GSS_C_DCE_STYLE`) and MS-RPCE 3.3.1.5.2.2:
+/// 1. `GSS_IOV_BUFFER_TYPE_SIGN_ONLY`: RPC PDU header (`header`, 24 or 40 bytes)
+/// 2. `GSS_IOV_BUFFER_TYPE_DATA`: RPC stub payload (`stub`, encrypted/decrypted in place)
+/// 3. `GSS_IOV_BUFFER_TYPE_SIGN_ONLY`: 8-byte `sec_trailer` (`sec_trailer`)
+/// 4. `GSS_IOV_BUFFER_TYPE_HEADER`: GSS wrap token (`auth_value`)
+///
+/// GSS only reads the `SIGN_ONLY` buffers, so their pointers are cast to `*mut`
+/// without being written through.
+#[must_use]
+pub const fn build_dce_iov_descriptors(
+    header: &[u8],
+    stub: &mut [u8],
+    sec_trailer: &[u8],
+    auth_value: &mut [u8],
+) -> [ffi::gss_iov_buffer_desc; 4] {
+    [
+        ffi::gss_iov_buffer_desc {
+            type_: ffi::GSS_IOV_BUFFER_TYPE_SIGN_ONLY,
+            buffer: ffi::gss_buffer_desc {
+                length: header.len(),
+                value: header.as_ptr().cast_mut().cast(),
+            },
+        },
+        ffi::gss_iov_buffer_desc {
+            type_: ffi::GSS_IOV_BUFFER_TYPE_DATA,
+            buffer: ffi::gss_buffer_desc {
+                length: stub.len(),
+                value: stub.as_mut_ptr().cast(),
+            },
+        },
+        ffi::gss_iov_buffer_desc {
+            type_: ffi::GSS_IOV_BUFFER_TYPE_SIGN_ONLY,
+            buffer: ffi::gss_buffer_desc {
+                length: sec_trailer.len(),
+                value: sec_trailer.as_ptr().cast_mut().cast(),
+            },
+        },
+        ffi::gss_iov_buffer_desc {
+            type_: ffi::GSS_IOV_BUFFER_TYPE_HEADER,
+            buffer: ffi::gss_buffer_desc {
+                length: auth_value.len(),
+                value: auth_value.as_mut_ptr().cast(),
+            },
+        },
+    ]
+}
+
+/// Fail unless a sealed DCE/RPC stub is a whole number of AES blocks.
+fn require_dce_stub_alignment(sealed: bool, stub_len: usize) -> Result<()> {
+    if sealed && !stub_len.is_multiple_of(16) {
+        return Err(Error::Iov(format!(
+            "DCE/RPC sealed stub length must be a multiple of 16 bytes (got {stub_len})"
+        )));
+    }
+    Ok(())
+}
+
 /// Wrap a PDU using GSS IOV for zero-copy operation
 ///
 /// This is the real IOV implementation that avoids data copying on Linux.
@@ -621,6 +694,225 @@ pub fn wrap_size_limit_real(ctx: &ClientCtx, conf_req: bool, max_wrapped: usize)
     Ok(max_input_size as usize)
 }
 
+/// Query the DCE/RPC `auth_value` (`GSS_IOV_BUFFER_TYPE_HEADER`) length for a
+/// padded stub of `padded_stub_len` bytes.
+///
+/// On Linux with the `iov` feature and an established context, calls
+/// `gss_wrap_iov_length` with the 4-element DCE/RPC IOV layout (`SIGN_ONLY`,
+/// `DATA`, `SIGN_ONLY`, `HEADER`). Otherwise returns the RFC 4121 / MS-KILE
+/// 3.4.5.4.1 AES token length ([`DCE_PRIVACY_AUTH_VALUE_LEN`] or
+/// [`DCE_INTEGRITY_AUTH_VALUE_LEN`]).
+pub fn dce_auth_value_len_real(
+    ctx: Option<&ClientCtx>,
+    conf_req: bool,
+    padded_stub_len: usize,
+) -> Result<usize> {
+    require_dce_stub_alignment(conf_req, padded_stub_len)?;
+
+    #[cfg(all(target_os = "linux", feature = "iov"))]
+    if let Some(ctx) = ctx {
+        let ctx_handle = raw_handle(ctx)?;
+        let length_only = |type_, length| ffi::gss_iov_buffer_desc {
+            type_,
+            buffer: ffi::gss_buffer_desc {
+                length,
+                value: ptr::null_mut(),
+            },
+        };
+        let mut iov_descs = [
+            length_only(ffi::GSS_IOV_BUFFER_TYPE_SIGN_ONLY, 24),
+            length_only(ffi::GSS_IOV_BUFFER_TYPE_DATA, padded_stub_len),
+            length_only(ffi::GSS_IOV_BUFFER_TYPE_SIGN_ONLY, 8),
+            length_only(ffi::GSS_IOV_BUFFER_TYPE_HEADER, 0),
+        ];
+
+        let mut minor_status: ffi::OM_uint32 = 0;
+        let mut conf_state: libc::c_int = 0;
+
+        // SAFETY: Only lengths are read and written; `ctx_handle` is owned by
+        // `ctx`, which is borrowed for the call.
+        let major_status = unsafe {
+            ffi::gss_wrap_iov_length(
+                &mut minor_status,
+                ctx_handle,
+                i32::from(conf_req),
+                ffi::GSS_C_QOP_DEFAULT,
+                &mut conf_state,
+                iov_descs.as_mut_ptr(),
+                iov_descs.len() as libc::c_int,
+            )
+        };
+
+        if major_status != ffi::GSS_S_COMPLETE {
+            #[cfg(feature = "trace")]
+            error!(
+                target: "kerbsec::iov",
+                major = format_args!("{:#x}", major_status),
+                minor = format_args!("{:#x}", minor_status),
+                "gss_wrap_iov_length failed"
+            );
+            return Err(gss_error(major_status, minor_status));
+        }
+        return Ok(iov_descs[3].buffer.length);
+    }
+
+    let _ = ctx;
+    Ok(if conf_req {
+        DCE_PRIVACY_AUTH_VALUE_LEN
+    } else {
+        DCE_INTEGRITY_AUTH_VALUE_LEN
+    })
+}
+
+/// Protect a DCE/RPC PDU using the 4-buffer `GSS_C_DCE_STYLE` IOV layout.
+///
+/// Per MS-RPCE 3.3.1.5.2.2: `header` (`SIGN_ONLY`), `stub` (`DATA`, encrypted in
+/// place when `conf_req = true`), `sec_trailer` (`SIGN_ONLY`), and the returned
+/// `auth_value` (`HEADER`). Requesting confidentiality fails if the mechanism
+/// does not encrypt.
+///
+/// Requires Linux with the `iov` feature (MIT `gss_wrap_iov`).
+pub fn wrap_dce_iov_real(
+    ctx: &mut ClientCtx,
+    header: &[u8],
+    stub: &mut [u8],
+    sec_trailer: &[u8],
+    conf_req: bool,
+) -> Result<Vec<u8>> {
+    require_dce_stub_alignment(conf_req, stub.len())?;
+
+    #[cfg(all(target_os = "linux", feature = "iov"))]
+    {
+        use buffer_sizes::MAX_HEADER_SIZE;
+
+        let expected_len =
+            dce_auth_value_len_real(Some(&*ctx), conf_req, stub.len()).unwrap_or(MAX_HEADER_SIZE);
+        let ctx_handle = raw_handle(ctx)?;
+        let mut auth_value = vec![0u8; expected_len.max(MAX_HEADER_SIZE)];
+        let mut iov_descs = build_dce_iov_descriptors(header, stub, sec_trailer, &mut auth_value);
+
+        let mut minor_status: ffi::OM_uint32 = 0;
+        let mut conf_state: libc::c_int = 0;
+
+        // SAFETY: All buffers are valid, live for the call, and sized as
+        // described; GSS only reads the `SIGN_ONLY` buffers. `ctx_handle` is
+        // owned by `ctx`, which is mutably borrowed for the call.
+        let major_status = unsafe {
+            ffi::gss_wrap_iov(
+                &mut minor_status,
+                ctx_handle,
+                i32::from(conf_req),
+                ffi::GSS_C_QOP_DEFAULT,
+                &mut conf_state,
+                iov_descs.as_mut_ptr(),
+                iov_descs.len() as libc::c_int,
+            )
+        };
+
+        if major_status != ffi::GSS_S_COMPLETE {
+            #[cfg(feature = "trace")]
+            error!(
+                target: "kerbsec::iov",
+                major = format_args!("{:#x}", major_status),
+                minor = format_args!("{:#x}", minor_status),
+                "gss_wrap_iov (DCE) failed"
+            );
+            return Err(gss_error(major_status, minor_status));
+        }
+
+        let header_len = iov_descs[3].buffer.length;
+        if header_len > auth_value.len() {
+            return Err(Error::Iov(format!(
+                "GSS returned unexpected DCE HEADER size: {header_len}"
+            )));
+        }
+        require_conf_applied(conf_req, conf_state, "gss_wrap_iov (DCE)")?;
+
+        auth_value.truncate(header_len);
+        Ok(auth_value)
+    }
+
+    #[cfg(not(all(target_os = "linux", feature = "iov")))]
+    {
+        let _ = (ctx, header, stub, sec_trailer, conf_req);
+        Err(Error::Iov(
+            "DCE/RPC IOV (SIGN_ONLY header and sec_trailer) requires Linux with the `iov` feature"
+                .into(),
+        ))
+    }
+}
+
+/// Verify and (when `expect_conf = true`) decrypt in place a DCE/RPC PDU using
+/// the 4-buffer `GSS_C_DCE_STYLE` IOV layout (MS-RPCE 3.3.1.5.2.2).
+///
+/// An integrity-only PDU is rejected with [`Error::ConfidentialityNotProvided`]
+/// when `expect_conf` is set. On any failure `stub` is zeroized, since a failed
+/// in-place decryption may leave partial plaintext.
+///
+/// Requires Linux with the `iov` feature (MIT `gss_unwrap_iov`).
+pub fn unwrap_dce_iov_real(
+    ctx: &mut ClientCtx,
+    header: &[u8],
+    stub: &mut [u8],
+    sec_trailer: &[u8],
+    auth_value: &[u8],
+    expect_conf: bool,
+) -> Result<()> {
+    require_dce_stub_alignment(expect_conf, stub.len())?;
+
+    #[cfg(all(target_os = "linux", feature = "iov"))]
+    {
+        let ctx_handle = raw_handle(ctx)?;
+        let mut auth_buf = auth_value.to_vec();
+        let mut iov_descs = build_dce_iov_descriptors(header, stub, sec_trailer, &mut auth_buf);
+
+        let mut minor_status: ffi::OM_uint32 = 0;
+        let mut conf_state: libc::c_int = 0;
+        let mut qop_state: ffi::gss_qop_t = 0;
+
+        // SAFETY: All buffers are valid and live for the call; GSS only reads
+        // the `SIGN_ONLY` buffers. `ctx_handle` is owned by `ctx`, which is
+        // mutably borrowed for the call.
+        let major_status = unsafe {
+            ffi::gss_unwrap_iov(
+                &mut minor_status,
+                ctx_handle,
+                &mut conf_state,
+                &mut qop_state,
+                iov_descs.as_mut_ptr(),
+                iov_descs.len() as libc::c_int,
+            )
+        };
+
+        if major_status != ffi::GSS_S_COMPLETE {
+            #[cfg(feature = "trace")]
+            error!(
+                target: "kerbsec::iov",
+                major = format_args!("{:#x}", major_status),
+                minor = format_args!("{:#x}", minor_status),
+                "gss_unwrap_iov (DCE) failed"
+            );
+            stub.zeroize();
+            return Err(gss_error(major_status, minor_status));
+        }
+
+        if let Err(e) = require_conf_applied(expect_conf, conf_state, "gss_unwrap_iov (DCE)") {
+            stub.zeroize();
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    #[cfg(not(all(target_os = "linux", feature = "iov")))]
+    {
+        let _ = (ctx, header, stub, sec_trailer, auth_value, expect_conf);
+        Err(Error::Iov(
+            "DCE/RPC IOV (SIGN_ONLY header and sec_trailer) requires Linux with the `iov` feature"
+                .into(),
+        ))
+    }
+}
+
 /// Convert GSS error to our Error type
 fn gss_error(major: ffi::OM_uint32, minor: ffi::OM_uint32) -> Error {
     let text = display_gss_status(major, minor);
@@ -759,5 +1051,36 @@ mod tests {
             text.contains(supplementary_text.trim()),
             "{text:?} lacks {supplementary_text:?}"
         );
+    }
+
+    #[test]
+    fn dce_iov_descriptors_mark_header_and_sec_trailer_sign_only() {
+        let header = [0x05u8; 24];
+        let mut stub = [0xAAu8; 32];
+        let sec_trailer = [0x10, 0x06, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00];
+        let mut auth_value = [0u8; DCE_PRIVACY_AUTH_VALUE_LEN];
+
+        let descs = build_dce_iov_descriptors(&header, &mut stub, &sec_trailer, &mut auth_value);
+        assert_eq!(descs[0].type_, ffi::GSS_IOV_BUFFER_TYPE_SIGN_ONLY);
+        assert_eq!(descs[0].buffer.length, 24);
+        assert_eq!(descs[1].type_, ffi::GSS_IOV_BUFFER_TYPE_DATA);
+        assert_eq!(descs[1].buffer.length, 32);
+        assert_eq!(descs[2].type_, ffi::GSS_IOV_BUFFER_TYPE_SIGN_ONLY);
+        assert_eq!(descs[2].buffer.length, 8);
+        assert_eq!(descs[3].type_, ffi::GSS_IOV_BUFFER_TYPE_HEADER);
+        assert_eq!(descs[3].buffer.length, DCE_PRIVACY_AUTH_VALUE_LEN);
+    }
+
+    #[test]
+    fn dce_auth_value_len_validates_alignment_and_returns_rfc4121_sizes() {
+        assert_eq!(
+            dce_auth_value_len_real(None, true, 32).unwrap(),
+            DCE_PRIVACY_AUTH_VALUE_LEN
+        );
+        assert_eq!(
+            dce_auth_value_len_real(None, false, 12).unwrap(),
+            DCE_INTEGRITY_AUTH_VALUE_LEN
+        );
+        assert!(dce_auth_value_len_real(None, true, 12).is_err());
     }
 }
