@@ -343,11 +343,12 @@ fn load() -> Result<GssApi, String> {
                     .map_err(|missing| format!("{} lacks {missing}", candidate.to_string_lossy()))
             }
             Err(e) => {
-                // libloading's message is generic ("dlopen failed"); the loader's
-                // own text is the source.
-                let reason = std::error::Error::source(&e)
-                    .map_or_else(|| e.to_string(), ToString::to_string);
-                failures.push(format!("{}: {reason}", candidate.to_string_lossy()));
+                // libloading's message is generic ("dlopen failed"). The loader's
+                // own text is the source, and it names the file.
+                failures.push(std::error::Error::source(&e).map_or_else(
+                    || format!("{}: {e}", candidate.to_string_lossy()),
+                    ToString::to_string,
+                ));
             }
         }
     }
