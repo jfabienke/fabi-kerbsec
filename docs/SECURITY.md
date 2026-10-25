@@ -179,7 +179,8 @@ struct SessionKey {
 ### ✅ Minimal Dependencies
 - [x] Only essential crates used
 - [x] No unmaintained dependencies
-- [x] libgssapi pinned to stable version
+- [x] No C compiled into the build; the system GSS-API is loaded at run time and
+      `abi-check/` compares its declarations with the system headers
 
 ### ✅ Supply Chain
 ```bash

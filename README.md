@@ -46,9 +46,15 @@ fabi-kerbsec = { path = "../kerbsec", features = ["dns", "runtime", "ccache"] }
 
 ### Prerequisites
 
-- **Ubuntu/Debian**: `sudo apt-get install libkrb5-dev libgssapi-krb5-2`
-- **macOS**: System Kerberos (Heimdal) included, or `brew install krb5` for MIT
-- **RHEL/Fedora**: `sudo dnf install krb5-devel`
+Building needs no Kerberos packages: kerbsec loads the system GSS-API library the first
+time a context is used. At run time:
+
+- **Ubuntu/Debian**: `libgssapi-krb5-2` (MIT Kerberos)
+- **RHEL/Fedora**: `krb5-libs`
+- **macOS**: `GSS.framework`, built in
+
+Set `KERBSEC_GSSAPI_LIBRARY` to load a different library. Without one, `initial_token`
+fails with `Error::GssUnavailable`.
 
 ## Usage
 
@@ -142,9 +148,9 @@ Application (e.g., linux-wmi)
     ↓
 fabi_kerbsec::Context (Rust API)
     ↓
-libgssapi (Rust bindings)
+fabi_kerbsec::ffi (hand-written declarations, loaded at run time)
     ↓
-System GSS-API (MIT Kerberos/Heimdal)
+System GSS-API (MIT Kerberos, Heimdal, or Apple's GSS.framework)
 ```
 
 The library handles:
@@ -196,7 +202,7 @@ The implementation follows these standards and specifications, available in `doc
 The implementation automatically detects the platform and uses the best available method
 
 ### GSS_C_DCE_STYLE Flag
-The GSS_C_DCE_STYLE flag (0x1000) is runtime-configurable via the `enable_dce_style` configuration option (defaults to true). Since libgssapi 0.9.1 doesn't expose it in CtxFlags, we manually apply it using bitwise operations. This flag is critical for:
+The GSS_C_DCE_STYLE flag (0x1000) is runtime-configurable via the `enable_dce_style` configuration option (defaults to true). This flag is critical for:
 - The DCE/RPC three-leg handshake
 - Relaxed IOV padding/trailer rules for DCE/RPC PDU framing
 
@@ -329,6 +335,6 @@ MIT License - See LICENSE file for details
 
 This project builds upon:
 - MIT Kerberos and Heimdal implementations
-- The `libgssapi` Rust bindings
+- The `libgssapi` Rust bindings, which kerbsec used until 0.4
 - Microsoft's DCE/RPC and Kerberos documentation
 - The broader Kerberos and RPC communities

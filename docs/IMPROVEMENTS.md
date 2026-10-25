@@ -68,7 +68,8 @@
 ## Security Enhancements
 
 ### Feature Flags
-- Pinned `libgssapi = "=0.9.1"` for stability
+- Pinned `libgssapi = "=0.9.1"` for stability (replaced in 0.4 by hand-written
+  declarations loaded at run time)
 
 ### Validation
 - IP address SPN validation

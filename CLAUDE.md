@@ -78,7 +78,8 @@ The library implements a layered architecture with platform abstractions:
    - Thread-safe: Send but NOT Sync (movable, not shareable)
 
 2. **Security Abstraction** (`src/security/`)
-   - `gss.rs`: Unix GSS-API wrapper interfacing with libgssapi
+   - `gss.rs`: `GssContext`, the handshake and per-message calls
+   - `gss_handle.rs`: owned initiator handles (`ClientCtx` with its target name and credentials)
    - `gss_iov.rs`: Zero-copy IOV operations (Linux-specific via FFI)
    - Platform detection and fallback mechanisms
 
@@ -88,10 +89,15 @@ The library implements a layered architecture with platform abstractions:
    - `AuthLevel`: Integrity vs Privacy selection
 
 4. **FFI Layer** (`src/ffi/`)
-   - Hand-written bindings for `gss_wrap`/`gss_unwrap`, `gss_wrap_iov`/`gss_unwrap_iov`,
-     `gss_wrap_size_limit` and status display
-   - Needed because libgssapi's wrappers discard `conf_state`, which kerbsec must check
-   - `tests/ffi_abi.rs` checks them against the system headers
+   - Hand-written RFC 2744 declarations plus the MIT/Heimdal IOV extensions, resolved from
+     the system library at run time with `libloading` (`ffi::api()`). Building needs no
+     Kerberos headers, bindgen or libclang.
+   - Library: `KERBSEC_GSSAPI_LIBRARY`, else `libgssapi_krb5.so.2` then `libgssapi.so.3`
+     (Linux) or `GSS.framework` (macOS). Without one, every `gss_*` call returns
+     `GSS_S_UNAVAILABLE` and `initial_token` fails with `Error::GssUnavailable`.
+   - Apple packs the structs on Intel Macs (`packed(2)`); const assertions check the layouts
+     per target. `abi-check/` (CI only, bindgen via libgssapi-sys) compares constants and
+     layouts with the system headers: `cd abi-check && cargo test`
    - Platform-specific: Linux (with `iov`) uses native IOV; elsewhere single-token
      `gss_wrap`/`gss_unwrap`
 
@@ -139,8 +145,8 @@ The library implements DCE/RPC-specific Kerberos semantics:
 
 ## Critical Implementation Details
 
-1. **GSS_C_DCE_STYLE Flag**: Critical for DCE/RPC - manually applied since libgssapi doesn't expose it
-2. **Thread Safety**: Context is Send but NOT Sync (enforced by a `PhantomData<Cell<()>>` marker; libgssapi's own context claims Sync) - cannot be shared between threads
+1. **GSS_C_DCE_STYLE Flag**: Critical for DCE/RPC - requested with the other `GSS_C_*` flags in `initial_token`
+2. **Thread Safety**: Context is Send but NOT Sync (the raw GSS handles, and a `PhantomData<Cell<()>>` marker for non-Unix builds) - cannot be shared between threads
 3. **Confidentiality is verified, not assumed**: wrap/unwrap read the real `conf_state`; Privacy that was not applied/present is `Error::ConfidentialityNotProvided`. Negotiated flags are checked after the handshake.
 4. **Memory Management**: Zero-copy on Linux IOV, one allocation on macOS fallback
 5. **Error Handling**: Structured errors with GSS major/minor codes preserved
@@ -148,15 +154,16 @@ The library implements DCE/RPC-specific Kerberos semantics:
 ## Dependencies
 
 ### System Requirements
-- **Ubuntu/Debian**: `libkrb5-dev libgssapi-krb5-2`
-- **macOS**: System Kerberos (Heimdal) or `brew install krb5` for MIT
-- **RHEL/Fedora**: `krb5-devel`
+Building needs no Kerberos packages. At run time Kerberos needs the system GSS-API library:
+- **Ubuntu/Debian**: `libgssapi-krb5-2`
+- **RHEL/Fedora**: `krb5-libs`
+- **macOS**: `GSS.framework` (built in)
+
+The e2e tests also need MIT KDC tools (`krb5-kdc krb5-admin-server krb5-user`, or
+`brew install krb5`), and `abi-check/` needs `libkrb5-dev` and libclang.
 
 ### Key Rust Dependencies
-- `libgssapi = "=0.9.1"`: Exact version pinned for security. Vendored in `vendor/libgssapi`
-  (as a path dependency, so dependents get it too) with two additions: `ClientCtx::raw_ctx()`, so our FFI can
-  observe `conf_state` without reading private struct layout, and `ServerCtx::raw_ctx()`, which the e2e tests use to
-  drive the acceptor side of the DCE IOV calls. Re-apply both when upgrading.
-- `hickory-resolver`: DNS operations
-- `tokio`: Async runtime
+- `libloading`: loads the system GSS-API (`src/ffi`)
+- `hickory-resolver`: DNS operations (`dns`)
+- `tokio`: Async runtime (`dns`, `runtime`)
 - `tracing`: Structured logging

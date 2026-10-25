@@ -79,10 +79,11 @@ kerbsec is a lightweight Kerberos security context library designed specifically
   - `mod.rs`: Common types (IovWrap, Oid)
 
 #### 4. FFI Layer (`src/ffi/`)
-- **Purpose**: Hand-written bindings for `gss_wrap`/`gss_unwrap`, the IOV calls and
-  `gss_wrap_size_limit`
-- **Why Custom**: libgssapi's wrappers discard `conf_state`, which kerbsec checks to
-  reject Privacy downgrades; `tests/ffi_abi.rs` checks the bindings against the headers
+- **Purpose**: Hand-written declarations of the GSS-API calls kerbsec makes (RFC 2744
+  plus the MIT/Heimdal IOV extensions), resolved from the system library at run time
+- **Why Custom**: no build-time C toolchain or headers, kerbsec sees every `conf_state`
+  (to reject Privacy downgrades), and programs that never use Kerberos run without the
+  library; `abi-check/` compares the declarations with the system headers in CI
 - **Safety**: All unsafe code isolated here
 
 ### Optional Components

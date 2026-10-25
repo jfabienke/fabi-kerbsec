@@ -5,6 +5,37 @@ All notable changes to kerbsec will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - Unreleased
+
+### Changed (breaking)
+- GSS-API is no longer linked. kerbsec declares the calls it makes and loads the system
+  library the first time one is used: `libgssapi_krb5.so.2` (MIT) or `libgssapi.so.3`
+  (Heimdal) on Linux, `GSS.framework` on macOS, or the library named by
+  `KERBSEC_GSSAPI_LIBRARY`. Building needs no Kerberos headers, bindgen or libclang, and
+  a program that never uses Kerberos runs on a host without the library. Without one,
+  `initial_token` fails with the new `Error::GssUnavailable`.
+- The `libgssapi` crate is gone, with the vendored copy and its `raw_ctx` accessors, and
+  so is the `libgssapi-sys` dev-dependency.
+- Default features are just `iov`; `dns` and `runtime` are opt-in.
+- `security::gss` (`GssContext`) and the `security::gss_iov::*_real` functions are
+  crate-private; use `Context`. The unused fragment-based `unwrap_iov_real` is removed.
+- `ffi::has_iov_support()` checks at run time (it is no longer `const`) and needs the
+  `iov` feature.
+
+### Added
+- `ffi::api()` and `ffi::LIBRARY_ENV`; declarations for name, credential and context
+  establishment calls, `GSS_S_UNAVAILABLE` and `ffi::is_error` (`GSS_ERROR()`).
+- The struct layouts follow Apple's `#pragma pack(2)` on Intel Macs, with compile-time
+  layout checks for every target.
+- `abi-check/`: a CI-only package comparing the declarations with the system headers
+  through `libgssapi-sys` (replaces `tests/ffi_abi.rs`).
+
+### Testing
+- The e2e acceptor uses the raw GSS-API. `tests/gss_unavailable.rs` checks the error
+  for a missing library.
+- CI builds without Kerberos packages, checks Intel-Mac layouts with clippy for
+  `x86_64-apple-darwin`, and runs the e2e tests under Rosetta where it is available.
+
 ## [0.3.0] - Unreleased
 
 ### Security

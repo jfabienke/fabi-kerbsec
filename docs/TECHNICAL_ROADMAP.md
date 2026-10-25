@@ -36,10 +36,13 @@ fn wrap_iov_fallback(...) {
 
 #### Why Custom FFI?
 
-1. **libgssapi 0.9.1 limitations**:
-   - Doesn't expose IOV functions
-   - Missing GSS_C_DCE_STYLE flag
-   - No wrap_size_limit binding
+1. **What the libgssapi crate lacked** (kerbsec used it until 0.4):
+   - IOV functions
+   - The GSS_C_DCE_STYLE flag
+   - A wrap_size_limit binding, and its wrappers discarded `conf_state`
+
+   Since 0.4 every GSS-API call is declared by hand and resolved from the system
+   library at run time (`src/ffi`), so builds need no headers, bindgen or libclang.
 
 2. **Benefits of custom FFI**:
    - Zero-copy on supported platforms
@@ -78,29 +81,6 @@ debug!(
 ```
 
 ## Migration Plans
-
-### libgssapi 0.10+ Migration (Future)
-
-When libgssapi exposes IOV:
-
-1. **Phase 1**: Feature flag for new API
-   ```toml
-   [features]
-   libgssapi-iov = ["libgssapi/iov"]
-   ```
-
-2. **Phase 2**: Conditional compilation
-   ```rust
-   #[cfg(feature = "libgssapi-iov")]
-   use libgssapi::iov::{wrap_iov, unwrap_iov};
-
-   #[cfg(not(feature = "libgssapi-iov"))]
-   use crate::ffi::{gss_wrap_iov, gss_unwrap_iov};
-   ```
-
-3. **Phase 3**: Deprecate custom FFI
-   - Maintain for 2 minor versions
-   - Remove in next major version
 
 ### Windows SSPI Support (v0.3.0)
 
@@ -206,8 +186,8 @@ bytes = "1"           # Zero-copy buffers
 
 # Platform-specific
 [target.'cfg(unix)'.dependencies]
-libgssapi = "=0.9.1"  # Exact version for stability
 libc = "0.2"          # System calls
+libloading = "0.9"    # Loads the system GSS-API at run time
 
 # Optional features
 tokio = { version = "1.47", optional = true }
