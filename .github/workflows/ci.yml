@@ -159,16 +159,12 @@ jobs:
       - name: Run end-to-end tests
         run: ./scripts/e2e-kdc.sh
 
-  # Security audit (advisory, non-blocking)
-  security-audit:
-    name: Security Audit
+  # Supply-chain checks (blocking)
+  deny:
+    name: Dependencies (cargo-deny)
     runs-on: ubuntu-26.04
-    continue-on-error: true  # Don't fail CI on advisories
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: Run audit
-        run: cargo audit || echo "::warning::Security advisories found - review recommended"
+      # Advisories, licenses, sources and the ban on crates that compile C (deny.toml)
+      - uses: EmbarkStudios/cargo-deny-action@v2.1.1

@@ -53,6 +53,9 @@ cargo clippy --all-targets --all-features -- -D warnings
 # Check formatting
 cargo fmt --check
 
+# Advisories, licenses, sources, banned crates (deny.toml) - same as CI
+cargo deny check
+
 # Generate docs
 cargo doc --all-features --no-deps
 ```

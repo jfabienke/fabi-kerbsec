@@ -1,0 +1,46 @@
+# cargo-deny configuration: advisories, licenses, banned crates and sources.
+# Run locally with `cargo deny check` (cargo-deny 0.20 or later).
+
+[graph]
+# The supported hosts. Windows-only crates would otherwise dominate the
+# duplicate-version warnings.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+all-features = true
+
+[advisories]
+ignore = []
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+]
+private = { ignore = true }
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# The vendored libgssapi is a path dependency.
+allow-wildcard-paths = true
+# Policy: no third-party C compiled into the build. The system GSS-API is the
+# one OS library kerbsec uses, because the OS holds the Kerberos credentials.
+deny = [
+    { crate = "cc", reason = "compiles C; keep the build pure Rust" },
+    { crate = "cmake", reason = "compiles C; keep the build pure Rust" },
+    { crate = "openssl-sys", reason = "bundled or system OpenSSL; use RustCrypto" },
+    { crate = "aws-lc-sys", reason = "bundled C crypto; use RustCrypto" },
+    { crate = "aws-lc-rs", reason = "bundled C crypto; use RustCrypto" },
+    { crate = "ring", reason = "bundled C and assembly crypto; use RustCrypto" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
