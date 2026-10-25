@@ -347,9 +347,9 @@ fn server_get_mic(server: &mut ServerCtx, message: &[u8]) -> Vec<u8> {
     }
 }
 
-/// Acceptor-side `gss_verify_mic`; whether the MIC matched.
+/// Acceptor-side `gss_verify_mic`; the GSS major status if it fails.
 #[allow(clippy::needless_pass_by_ref_mut)] // as in `server_get_mic`
-fn server_verify_mic(server: &mut ServerCtx, message: &[u8], mic: &[u8]) -> bool {
+fn server_verify_mic(server: &mut ServerCtx, message: &[u8], mic: &[u8]) -> Result<(), u32> {
     use fabi_kerbsec::ffi;
 
     let mut message_buf = ffi::gss_buffer_desc {
@@ -371,11 +371,16 @@ fn server_verify_mic(server: &mut ServerCtx, message: &[u8], mic: &[u8]) -> bool
             &mut qop_state,
         )
     };
-    major == ffi::GSS_S_COMPLETE
+    if major == ffi::GSS_S_COMPLETE {
+        Ok(())
+    } else {
+        Err(major)
+    }
 }
 
-/// DCE/RPC packet integrity signs with MIC tokens. Tampered messages are tried
-/// before the genuine ones so a rejection never consumes a sequence number.
+/// DCE/RPC packet integrity signs with MIC tokens. A tampered message is checked
+/// against its own fresh MIC, after the genuine one: Heimdal and MIT differ on
+/// whether a rejected token still consumes its sequence number.
 #[test]
 #[ignore = "requires a KDC; run scripts/e2e-kdc.sh"]
 fn mic_roundtrip_both_directions() {
@@ -390,17 +395,19 @@ fn mic_roundtrip_both_directions() {
         DCE_INTEGRITY_AUTH_VALUE_LEN,
         "MIC = integrity auth_value"
     );
+    server_verify_mic(&mut server, request, &mic).expect("server verify, GSS major");
+    let mic = client.get_mic(request).expect("client MIC");
     let mut tampered = request.to_vec();
     tampered[0] ^= 0x01;
-    assert!(!server_verify_mic(&mut server, &tampered, &mic));
-    assert!(server_verify_mic(&mut server, request, &mic));
+    assert!(server_verify_mic(&mut server, &tampered, &mic).is_err());
 
     let response = b"a response the server signed";
+    let mic = server_get_mic(&mut server, response);
+    client.verify_mic(response, &mic).expect("client verify");
     let mic = server_get_mic(&mut server, response);
     let mut tampered = response.to_vec();
     tampered[0] ^= 0x01;
     assert!(client.verify_mic(&tampered, &mic).is_err());
-    client.verify_mic(response, &mic).expect("client verify");
 }
 
 #[test]
