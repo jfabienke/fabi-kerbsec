@@ -10,13 +10,12 @@
 //! ```no_run
 //! use fabi_kerbsec::{KerberosConfig, AuthLevel};
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let config = KerberosConfig::builder()
 //!     .realm("CORP.EXAMPLE.COM")
 //!     .target_host("server.example.com")
 //!     .default_auth(AuthLevel::Privacy)
-//!     .build_async()
-//!     .await?;
+//!     .build()?;
 //! # Ok(())
 //! # }
 //! ```

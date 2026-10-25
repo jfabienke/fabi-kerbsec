@@ -114,8 +114,8 @@ The library implements DCE/RPC-specific Kerberos semantics:
 
 ## Feature Flags
 
-- `dns`: DNS canonicalization and KDC discovery (default)
-- `runtime`: Async runtime support with tokio (default)
+- `dns`: DNS canonicalization and KDC discovery (`build_async`)
+- `runtime`: Async runtime support with tokio
 - `iov`: GSS IOV operations for zero-copy (default)
 - `ccache`: Credential cache support
 - `trace`: Structured logging via tracing

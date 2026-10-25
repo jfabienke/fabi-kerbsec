@@ -11,7 +11,7 @@ authors = ["Internal Security Team"]
 publish = false
 
 [features]
-default = ["dns", "runtime", "iov"]
+default = ["iov"]
 dns = ["dep:hickory-resolver", "dep:tokio", "dep:anyhow"]
 runtime = ["dep:tokio"]
 iov = []  # Enable GSS IOV operations for zero-copy wrapping

@@ -286,7 +286,7 @@ GSS contexts maintain internal state:
 
 ```
 kerbsec
-├── default = ["dns", "runtime", "iov"]
+├── default = ["iov"]
 ├── dns ──────► hickory-resolver
 ├── runtime ──► tokio
 ├── iov ──────► (enables IOV code paths)

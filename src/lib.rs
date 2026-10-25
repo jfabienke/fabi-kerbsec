@@ -40,7 +40,7 @@
 //! ```no_run
 //! use fabi_kerbsec::{Context, KerberosConfig, AuthLevel, ServiceClass};
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Build SPN using helper
 //! let spn = ServiceClass::Http.spn("web.example.com");
 //!
@@ -49,8 +49,7 @@
 //!     .target_host("web.example.com")
 //!     .spn_override(Some(spn))
 //!     .default_auth(AuthLevel::Privacy)
-//!     .build_async()
-//!     .await?;
+//!     .build()?;
 //!
 //! let mut ctx = Context::new(config)?;
 //! let ap_req = ctx.initial_token()?;
