@@ -15,7 +15,7 @@ jobs:
     name: Format Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -30,7 +30,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |
@@ -52,7 +52,7 @@ jobs:
         rust: [stable, beta]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |
@@ -77,7 +77,7 @@ jobs:
     name: Test with Trace Logging
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |
@@ -110,7 +110,7 @@ jobs:
       # Never pick up Homebrew's MIT libgssapi by accident
       LIBGSSAPI_IMPL: apple
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -144,7 +144,7 @@ jobs:
     needs: [clippy, test]  # Only run after lint and unit tests pass
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -165,7 +165,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true  # Don't fail CI on advisories
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
