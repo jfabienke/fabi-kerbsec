@@ -137,9 +137,8 @@ fn wrap_size_limit_uses_the_mechanism() {
     assert!(client.wrap_size_limit(1024, false) >= limit);
 }
 
-/// The DCE layout needs `gss_wrap_iov`, which is Linux-only here. libgssapi's
-/// `ServerCtx` has no IOV unwrap, so this checks the initiator side: the wrap
-/// succeeds and the `auth_value` has the MS-KILE AES length the mechanism reports.
+/// The DCE layout needs `gss_wrap_iov`, which is Linux-only here. This checks the
+/// `auth_value` sizes; `dce_iov_roundtrip_both_directions` checks the peer accepts them.
 #[cfg(all(target_os = "linux", feature = "iov"))]
 #[test]
 #[ignore = "requires a KDC; run scripts/e2e-kdc.sh"]
@@ -180,6 +179,134 @@ fn dce_iov_wrap_yields_ms_kile_auth_value_lengths() {
         client.wrap_dce_iov(&header, &mut misaligned, &sec_trailer, true),
         Err(Error::Iov(_))
     ));
+}
+
+/// Acceptor-side DCE wrap through the raw handle (libgssapi wraps no IOV calls).
+#[cfg(all(target_os = "linux", feature = "iov"))]
+#[allow(clippy::needless_pass_by_ref_mut)] // the call advances `server`'s sequence state
+fn server_wrap_dce(
+    server: &mut ServerCtx,
+    header: &[u8],
+    stub: &mut [u8],
+    sec_trailer: &[u8],
+    conf_req: bool,
+) -> Vec<u8> {
+    use fabi_kerbsec::ffi;
+    use fabi_kerbsec::security::gss_iov::build_dce_iov_descriptors;
+
+    let mut auth_value = vec![0u8; 256];
+    let mut iov = build_dce_iov_descriptors(header, stub, sec_trailer, &mut auth_value);
+    let (mut minor, mut conf_state) = (0, 0);
+    // SAFETY: every buffer outlives the call; the handle is owned by `server`,
+    // which is mutably borrowed for it.
+    let major = unsafe {
+        ffi::gss_wrap_iov(
+            &mut minor,
+            server.raw_ctx().cast(),
+            i32::from(conf_req),
+            ffi::GSS_C_QOP_DEFAULT,
+            &mut conf_state,
+            iov.as_mut_ptr(),
+            iov.len() as i32,
+        )
+    };
+    assert_eq!(major, ffi::GSS_S_COMPLETE, "server wrap, minor {minor:#x}");
+    assert_eq!(conf_state != 0, conf_req);
+    let len = iov[3].buffer.length;
+    auth_value.truncate(len);
+    auth_value
+}
+
+/// Acceptor-side DCE unwrap; returns whether the PDU was encrypted, or the
+/// GSS major status on failure.
+#[cfg(all(target_os = "linux", feature = "iov"))]
+#[allow(clippy::needless_pass_by_ref_mut)] // as in `server_wrap_dce`
+fn server_unwrap_dce(
+    server: &mut ServerCtx,
+    header: &[u8],
+    stub: &mut [u8],
+    sec_trailer: &[u8],
+    auth_value: &[u8],
+) -> Result<bool, u32> {
+    use fabi_kerbsec::ffi;
+    use fabi_kerbsec::security::gss_iov::build_dce_iov_descriptors;
+
+    let mut auth_value = auth_value.to_vec();
+    let mut iov = build_dce_iov_descriptors(header, stub, sec_trailer, &mut auth_value);
+    let (mut minor, mut conf_state, mut qop_state) = (0, 0, 0);
+    // SAFETY: as in `server_wrap_dce`.
+    let major = unsafe {
+        ffi::gss_unwrap_iov(
+            &mut minor,
+            server.raw_ctx().cast(),
+            &mut conf_state,
+            &mut qop_state,
+            iov.as_mut_ptr(),
+            iov.len() as i32,
+        )
+    };
+    if major == ffi::GSS_S_COMPLETE {
+        Ok(conf_state != 0)
+    } else {
+        Err(major)
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "iov"))]
+#[test]
+#[ignore = "requires a KDC; run scripts/e2e-kdc.sh"]
+fn dce_iov_roundtrip_both_directions() {
+    let (mut client, mut server) = establish(AuthLevel::Privacy);
+    let header = [0x05, 0x00, 0x00, 0x03, 0x10, 0x00, 0x00, 0x00].repeat(3);
+    let sec_trailer = [0x10, 0x06, 0x08, 0x00, 0x01, 0x00, 0x00, 0x00];
+    let plain = *b"a 32-byte DCE/RPC request stub!!";
+
+    // Client to server, sealed. A tampered header is tried first: the signature
+    // covers the SIGN_ONLY buffers, and a rejected token does not consume its
+    // sequence number.
+    let mut stub = plain;
+    let auth_value = client
+        .wrap_dce_iov(&header, &mut stub, &sec_trailer, true)
+        .expect("client wrap");
+    let mut tampered = header.clone();
+    tampered[2] ^= 0x01;
+    let mut stub_copy = stub;
+    assert!(
+        server_unwrap_dce(
+            &mut server,
+            &tampered,
+            &mut stub_copy,
+            &sec_trailer,
+            &auth_value
+        )
+        .is_err(),
+        "a modified header must fail verification"
+    );
+    let encrypted = server_unwrap_dce(&mut server, &header, &mut stub, &sec_trailer, &auth_value)
+        .expect("server unwrap");
+    assert!(encrypted);
+    assert_eq!(stub, plain);
+
+    // Server to client, sealed
+    let mut stub = plain;
+    let auth_value = server_wrap_dce(&mut server, &header, &mut stub, &sec_trailer, true);
+    assert_ne!(stub, plain);
+    client
+        .unwrap_dce_iov(&header, &mut stub, &sec_trailer, &auth_value, true)
+        .expect("client unwrap");
+    assert_eq!(stub, plain);
+
+    // Server to client, signed only, while the client expects encryption
+    let mut stub = plain;
+    let auth_value = server_wrap_dce(&mut server, &header, &mut stub, &sec_trailer, false);
+    let err = client
+        .unwrap_dce_iov(&header, &mut stub, &sec_trailer, &auth_value, true)
+        .expect_err("must reject an unencrypted PDU");
+    assert!(
+        matches!(err, Error::ConfidentialityNotProvided(_)),
+        "unexpected error: {err:?}"
+    );
+    assert_eq!(stub, [0u8; 32], "the rejected stub is zeroized");
 }
 
 #[test]
