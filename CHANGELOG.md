@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `.dce_style(bool)` - Control DCE/RPC compatibility
   - `.delegation(bool)` - Enable/disable credential delegation
   - `.mutual_auth(bool)` - Control mutual authentication requirement
+- **DCE/RPC IOV protection** - `Context::wrap_dce_iov`, `unwrap_dce_iov` and
+  `dce_auth_value_len` for the 4-buffer `GSS_C_DCE_STYLE` layout of MS-RPCE 3.3.1.5.2.2
+  (header and `sec_trailer` `SIGN_ONLY`, stub `DATA`, token `HEADER`). Linux with the
+  `iov` feature; an error elsewhere.
 
 ### Fixed
 - Target principal: `HOST/fqdn` was imported as a host-based service name, so the KDC
@@ -56,6 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   supplementary bits are now displayed separately.
 
 ### Changed
+- **Breaking:** The crate is now `fabi-kerbsec` (`use fabi_kerbsec::...`). The repository
+  and the `kerbsec::*` tracing targets keep their names.
 - GSS_C_DCE_STYLE flag moved from compile-time feature to runtime configuration
 - Configuration defaults documented and standardized across the codebase
 - Security documentation expanded with delegation risks and mitigation strategies
