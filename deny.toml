@@ -28,8 +28,6 @@ private = { ignore = true }
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
-# The vendored libgssapi is a path dependency.
-allow-wildcard-paths = true
 # Policy: no third-party C compiled into the build. The system GSS-API is the
 # one OS library kerbsec uses, because the OS holds the Kerberos credentials.
 deny = [
@@ -39,6 +37,8 @@ deny = [
     { crate = "aws-lc-sys", reason = "bundled C crypto; use RustCrypto" },
     { crate = "aws-lc-rs", reason = "bundled C crypto; use RustCrypto" },
     { crate = "ring", reason = "bundled C and assembly crypto; use RustCrypto" },
+    { crate = "bindgen", reason = "GSS-API is declared by hand and loaded at run time (src/ffi); bindgen runs only in abi-check" },
+    { crate = "clang-sys", reason = "libclang belongs to bindgen; see bindgen" },
 ]
 
 [sources]

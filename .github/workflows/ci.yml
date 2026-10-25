@@ -23,7 +23,6 @@ jobs:
           components: rustfmt
 
       - name: Check formatting
-        # Not --all: that also formats local path dependencies (vendor/libgssapi)
         run: cargo fmt -- --check
 
   clippy:
@@ -32,11 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libkrb5-dev
-
+      # Building needs no Kerberos packages: GSS-API is loaded at run time.
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -54,10 +49,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install dependencies
+      - name: Install the GSS-API library (run time only)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libkrb5-dev
+          sudo apt-get install -y libgssapi-krb5-2
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
@@ -79,10 +74,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install dependencies
+      - name: Install the GSS-API library (run time only)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libkrb5-dev
+          sudo apt-get install -y libgssapi-krb5-2
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -100,15 +95,13 @@ jobs:
           RUST_LOG: kerbsec::ctx=info,kerbsec::gss=debug,kerbsec::iov=trace
         run: cargo run --example wmi_client --features trace,dns,runtime --no-default-features || true
 
-  # macOS: builds and tests against Apple's GSS.framework (Heimdal-derived), which uses
-  # the single-token gss_wrap/gss_unwrap path, then runs the real handshake against a
-  # throwaway MIT KDC from Homebrew.
+  # macOS: tests against Apple's GSS.framework (Heimdal-derived), which uses the
+  # single-token gss_wrap/gss_unwrap path, then runs the real handshake against a
+  # throwaway MIT KDC from Homebrew. kerbsec loads GSS.framework, never Homebrew's
+  # MIT library.
   macos:
     name: macOS (Apple GSS.framework)
     runs-on: macos-latest
-    env:
-      # Never pick up Homebrew's MIT libgssapi by accident
-      LIBGSSAPI_IMPL: apple
     steps:
       - uses: actions/checkout@v7
 
@@ -116,14 +109,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-
-      - name: Point bindgen at the active SDK
-        # libgssapi-sys hard-codes the Command Line Tools SDK path for <GSS/GSS.h>.
-        # Set the per-target variable: bindgen prefers it over the generic one, and
-        # .cargo/config.toml would otherwise fill it with the Command Line Tools SDK.
-        run: |
-          target="$(rustc -vV | sed -n 's/^host: //p' | tr - _)"
-          echo "BINDGEN_EXTRA_CLANG_ARGS_${target}=-F$(xcrun --show-sdk-path)/System/Library/Frameworks" >> "$GITHUB_ENV"
+          # Intel Macs: Apple packs the GSS structs there (see src/ffi)
+          targets: x86_64-apple-darwin
 
       - name: Install MIT Kerberos (KDC and kinit for the e2e tests)
         run: brew list krb5 >/dev/null 2>&1 || brew install krb5
@@ -131,11 +118,58 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+      # The struct layout assertions in src/ffi are checked at compile time.
+      - name: Clippy (Intel Mac)
+        run: cargo clippy --all-targets --all-features --target x86_64-apple-darwin -- -D warnings
+
       - name: Run tests
         run: cargo test --all-features
 
       - name: Run end-to-end tests
         run: ./scripts/e2e-kdc.sh
+
+      - name: Run end-to-end tests (Intel Mac, under Rosetta)
+        run: |
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            KERBSEC_E2E_CARGO_FLAGS="--all-features --target x86_64-apple-darwin" ./scripts/e2e-kdc.sh
+          else
+            echo "Rosetta is not available on this runner; skipping the Intel run"
+          fi
+
+      - name: Point bindgen at the active SDK (ABI check)
+        # libgssapi-sys hard-codes the Command Line Tools SDK path for <GSS/GSS.h>.
+        # Set the per-target variable: bindgen prefers it over the generic one, and
+        # abi-check/.cargo/config.toml would otherwise fill it with the Command Line
+        # Tools SDK.
+        run: |
+          target="$(rustc -vV | sed -n 's/^host: //p' | tr - _)"
+          echo "BINDGEN_EXTRA_CLANG_ARGS_${target}=-F$(xcrun --show-sdk-path)/System/Library/Frameworks" >> "$GITHUB_ENV"
+
+      - name: ABI check against Apple's headers
+        working-directory: abi-check
+        env:
+          LIBGSSAPI_IMPL: apple
+        run: cargo test
+
+  # The hand-written declarations against MIT's headers, through bindgen. This is the
+  # only place bindgen and the Kerberos headers are needed.
+  abi-check:
+    name: ABI check (MIT headers)
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the GSS-API headers and libclang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libkrb5-dev libclang-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compare constants and struct layouts
+        working-directory: abi-check
+        run: cargo test
 
   # End-to-end tests: real 3-leg handshake against a throwaway MIT KDC
   e2e:
@@ -154,7 +188,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update
-          sudo apt-get install -y libkrb5-dev krb5-kdc krb5-admin-server krb5-user
+          sudo apt-get install -y krb5-kdc krb5-admin-server krb5-user
 
       - name: Run end-to-end tests
         run: ./scripts/e2e-kdc.sh
