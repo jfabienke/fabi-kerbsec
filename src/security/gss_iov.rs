@@ -11,20 +11,19 @@
 //!
 //! # Confidentiality
 //!
-//! libgssapi discards `conf_state`, so every call here goes through our own FFI
-//! and checks it. Requesting Privacy and getting an integrity-only token back is
-//! an error ([`Error::ConfidentialityNotProvided`]), as is accepting an
+//! Every call here checks the mechanism's `conf_state`. Requesting Privacy and
+//! getting an integrity-only token back is an error ([`Error::ConfidentialityNotProvided`]), as is accepting an
 //! unencrypted token when the caller requires Privacy.
 
 // `&mut ClientCtx` is deliberate throughout: wrap/unwrap advance the context's
 // sequence state inside GSS even though only the raw handle is touched here.
 #![allow(clippy::needless_pass_by_ref_mut)]
 
+use super::gss_handle::ClientCtx;
 use crate::error::{Error, Result};
 use crate::ffi;
 use crate::security::IovWrap;
 use bytes::Bytes;
-use libgssapi::context::ClientCtx;
 use std::ptr;
 use std::slice;
 use zeroize::Zeroize;
@@ -50,16 +49,14 @@ mod buffer_sizes {
 
 /// Get the raw GSS context handle from `ClientCtx`.
 ///
-/// Uses the `raw_ctx` accessor of the vendored libgssapi (see
-/// `vendor/libgssapi/README.md`), so nothing here depends on `ClientCtx`'s
-/// field layout. The handle is owned by `ctx`; callers must only use it while
-/// they hold the borrow and must never delete it.
+/// The handle is owned by `ctx`; callers must only use it while they hold the
+/// borrow and must never delete it.
 ///
 /// # Errors
 ///
 /// Returns [`Error::NotEstablished`] if no handle exists yet.
-fn raw_handle(ctx: &ClientCtx) -> Result<ffi::gss_ctx_id_t> {
-    let handle: ffi::gss_ctx_id_t = ctx.raw_ctx().cast();
+const fn raw_handle(ctx: &ClientCtx) -> Result<ffi::gss_ctx_id_t> {
+    let handle = ctx.raw_ctx();
     if handle.is_null() {
         return Err(Error::NotEstablished);
     }
@@ -172,7 +169,7 @@ fn require_dce_stub_alignment(sealed: bool, stub_len: usize) -> Result<()> {
     skip(ctx),
     fields(conf_req, pdu_len = pdu.len())
 ))]
-pub fn wrap_iov_real(ctx: &mut ClientCtx, pdu: &[u8], conf_req: bool) -> Result<IovWrap> {
+pub(crate) fn wrap_iov_real(ctx: &mut ClientCtx, pdu: &[u8], conf_req: bool) -> Result<IovWrap> {
     #[cfg(not(all(target_os = "linux", feature = "iov")))]
     {
         #[cfg(feature = "trace")]
@@ -444,7 +441,7 @@ pub(crate) fn unwrap_token(
 }
 
 /// Copy a GSS-allocated buffer into a `Vec`, wiping and releasing the original.
-fn take_gss_buffer(buf: &mut ffi::gss_buffer_desc) -> Vec<u8> {
+pub(crate) fn take_gss_buffer(buf: &mut ffi::gss_buffer_desc) -> Vec<u8> {
     let out = if buf.value.is_null() || buf.length == 0 {
         Vec::new()
     } else {
@@ -461,173 +458,6 @@ fn take_gss_buffer(buf: &mut ffi::gss_buffer_desc) -> Vec<u8> {
         }
     }
     out
-}
-
-/// Unwrap a token given as separate header, data and trailer fragments
-///
-/// If `require_conf` is set the data must have been encrypted; an
-/// integrity-only token is rejected with [`Error::ConfidentialityNotProvided`].
-///
-/// # Errors
-///
-/// Returns an error if:
-/// - The GSS context is not established
-/// - The unwrap operation fails (e.g., integrity check failure)
-/// - `require_conf` is set but the token was not encrypted
-#[cfg_attr(feature = "trace", instrument(
-    target = "kerbsec::iov",
-    level = "debug",
-    skip(ctx),
-    fields(
-        header_len = header.len(),
-        data_len = data.len(),
-        trailer_len = trailer.len(),
-        require_conf
-    )
-))]
-pub fn unwrap_iov_real(
-    ctx: &mut ClientCtx,
-    header: &[u8],
-    data: &[u8],
-    trailer: &[u8],
-    require_conf: bool,
-) -> Result<Vec<u8>> {
-    #[cfg(not(all(target_os = "linux", feature = "iov")))]
-    {
-        #[cfg(feature = "trace")]
-        warn!(target: "kerbsec::iov", "IOV unwrap not available on this platform, using fallback");
-
-        unwrap_iov_fallback(ctx, header, data, trailer, require_conf)
-    }
-
-    #[cfg(all(target_os = "linux", feature = "iov"))]
-    {
-        unwrap_iov_native(ctx, header, data, trailer, require_conf)
-    }
-}
-
-/// Native IOV unwrap implementation for Linux
-#[cfg(all(target_os = "linux", feature = "iov"))]
-fn unwrap_iov_native(
-    ctx: &mut ClientCtx,
-    header: &[u8],
-    data: &[u8],
-    trailer: &[u8],
-    require_conf: bool,
-) -> Result<Vec<u8>> {
-    let ctx_handle = raw_handle(ctx)?;
-
-    // Reconstruct IOV buffers from the provided slices
-    let mut header_buf = header.to_vec();
-    let mut data_buf = data.to_vec();
-    let mut padding_buf: Vec<u8> = Vec::new(); // wrap_iov_native rejects padding
-    let mut trailer_buf = trailer.to_vec();
-
-    let mut iov_descs = [
-        ffi::gss_iov_buffer_desc {
-            type_: ffi::GSS_IOV_BUFFER_TYPE_HEADER,
-            buffer: ffi::gss_buffer_desc {
-                length: header_buf.len(),
-                value: header_buf.as_mut_ptr().cast(),
-            },
-        },
-        ffi::gss_iov_buffer_desc {
-            type_: ffi::GSS_IOV_BUFFER_TYPE_DATA,
-            buffer: ffi::gss_buffer_desc {
-                length: data_buf.len(),
-                value: data_buf.as_mut_ptr().cast(),
-            },
-        },
-        ffi::gss_iov_buffer_desc {
-            type_: ffi::GSS_IOV_BUFFER_TYPE_PADDING,
-            buffer: ffi::gss_buffer_desc {
-                length: padding_buf.len(),
-                value: padding_buf.as_mut_ptr().cast(),
-            },
-        },
-        ffi::gss_iov_buffer_desc {
-            type_: ffi::GSS_IOV_BUFFER_TYPE_TRAILER,
-            buffer: ffi::gss_buffer_desc {
-                length: trailer_buf.len(),
-                value: trailer_buf.as_mut_ptr().cast(),
-            },
-        },
-    ];
-
-    let mut minor_status: ffi::OM_uint32 = 0;
-    let mut conf_state: libc::c_int = 0;
-    let mut qop_state: ffi::gss_qop_t = 0;
-
-    // SAFETY: All buffers are valid and properly initialized; `ctx_handle` is
-    // owned by `ctx`, which is mutably borrowed for the call.
-    let major_status = unsafe {
-        ffi::gss_unwrap_iov(
-            &mut minor_status,
-            ctx_handle,
-            &mut conf_state,
-            &mut qop_state,
-            iov_descs.as_mut_ptr(),
-            iov_descs.len() as libc::c_int,
-        )
-    };
-
-    if major_status != ffi::GSS_S_COMPLETE {
-        #[cfg(feature = "trace")]
-        error!(
-            target: "kerbsec::iov",
-            major = format_args!("{:#x}", major_status),
-            minor = format_args!("{:#x}", minor_status),
-            "gss_unwrap_iov failed"
-        );
-        // Decryption is in place, so a failed call may leave partial plaintext.
-        data_buf.zeroize();
-        return Err(gss_error(major_status, minor_status));
-    }
-
-    if let Err(e) = require_conf_applied(require_conf, conf_state, "gss_unwrap_iov") {
-        data_buf.zeroize();
-        return Err(e);
-    }
-
-    #[cfg(feature = "trace")]
-    debug!(
-        target: "kerbsec::iov",
-        plaintext_len = data_buf.len(),
-        conf = (conf_state != 0),
-        "unwrap_iov completed"
-    );
-
-    // Return the unwrapped data
-    Ok(data_buf)
-}
-
-/// Fallback unwrap implementation for platforms without IOV support
-#[cfg_attr(all(target_os = "linux", feature = "iov"), allow(dead_code))]
-fn unwrap_iov_fallback(
-    ctx: &mut ClientCtx,
-    header: &[u8],
-    data: &[u8],
-    trailer: &[u8],
-    require_conf: bool,
-) -> Result<Vec<u8>> {
-    // Reconstruct the complete token by concatenating header + data + trailer
-    // This is the inverse of what wrap_iov_fallback produces
-    let mut token = Vec::with_capacity(header.len() + data.len() + trailer.len());
-    token.extend_from_slice(header);
-    token.extend_from_slice(data);
-    token.extend_from_slice(trailer);
-
-    let plaintext = unwrap_token(ctx, &token, require_conf)?;
-
-    #[cfg(feature = "trace")]
-    warn!(
-        target: "kerbsec::iov",
-        token_len = token.len(),
-        unwrapped_len = plaintext.len(),
-        "fallback unwrap: reassembled token"
-    );
-
-    Ok(plaintext)
 }
 
 /// Get accurate wrap size limit using GSS-API
@@ -655,7 +485,11 @@ fn unwrap_iov_fallback(
         fields(conf_req, max_wrapped)
     )
 )]
-pub fn wrap_size_limit_real(ctx: &ClientCtx, conf_req: bool, max_wrapped: usize) -> Result<usize> {
+pub(crate) fn wrap_size_limit_real(
+    ctx: &ClientCtx,
+    conf_req: bool,
+    max_wrapped: usize,
+) -> Result<usize> {
     let ctx_handle = raw_handle(ctx)?;
 
     let mut minor_status: ffi::OM_uint32 = 0;
@@ -702,7 +536,7 @@ pub fn wrap_size_limit_real(ctx: &ClientCtx, conf_req: bool, max_wrapped: usize)
 /// `DATA`, `SIGN_ONLY`, `HEADER`). Otherwise returns the RFC 4121 / MS-KILE
 /// 3.4.5.4.1 AES token length ([`DCE_PRIVACY_AUTH_VALUE_LEN`] or
 /// [`DCE_INTEGRITY_AUTH_VALUE_LEN`]).
-pub fn dce_auth_value_len_real(
+pub(crate) fn dce_auth_value_len_real(
     ctx: Option<&ClientCtx>,
     conf_req: bool,
     padded_stub_len: usize,
@@ -772,7 +606,7 @@ pub fn dce_auth_value_len_real(
 /// does not encrypt.
 ///
 /// Requires Linux with the `iov` feature (MIT `gss_wrap_iov`).
-pub fn wrap_dce_iov_real(
+pub(crate) fn wrap_dce_iov_real(
     ctx: &mut ClientCtx,
     header: &[u8],
     stub: &mut [u8],
@@ -850,7 +684,7 @@ pub fn wrap_dce_iov_real(
 /// in-place decryption may leave partial plaintext.
 ///
 /// Requires Linux with the `iov` feature (MIT `gss_unwrap_iov`).
-pub fn unwrap_dce_iov_real(
+pub(crate) fn unwrap_dce_iov_real(
     ctx: &mut ClientCtx,
     header: &[u8],
     stub: &mut [u8],
@@ -918,7 +752,7 @@ pub fn unwrap_dce_iov_real(
 /// DCE/RPC packet integrity uses MIC tokens, not wrap tokens: the signature is
 /// a MIC over the PDU header, stub and `sec_trailer` (or the stub alone when
 /// header signing was not negotiated).
-pub fn get_mic_real(ctx: &mut ClientCtx, message: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn get_mic_real(ctx: &mut ClientCtx, message: &[u8]) -> Result<Vec<u8>> {
     let ctx_handle = raw_handle(ctx)?;
 
     let mut input = ffi::gss_buffer_desc {
@@ -958,7 +792,7 @@ pub fn get_mic_real(ctx: &mut ClientCtx, message: &[u8]) -> Result<Vec<u8>> {
 }
 
 /// Check a MIC (`gss_verify_mic`) over `message`.
-pub fn verify_mic_real(ctx: &mut ClientCtx, message: &[u8], mic: &[u8]) -> Result<()> {
+pub(crate) fn verify_mic_real(ctx: &mut ClientCtx, message: &[u8], mic: &[u8]) -> Result<()> {
     let ctx_handle = raw_handle(ctx)?;
 
     let mut message_buf = ffi::gss_buffer_desc {
@@ -998,7 +832,7 @@ pub fn verify_mic_real(ctx: &mut ClientCtx, message: &[u8], mic: &[u8]) -> Resul
 }
 
 /// Convert GSS error to our Error type
-fn gss_error(major: ffi::OM_uint32, minor: ffi::OM_uint32) -> Error {
+pub(crate) fn gss_error(major: ffi::OM_uint32, minor: ffi::OM_uint32) -> Error {
     let text = display_gss_status(major, minor);
 
     #[cfg(feature = "trace")]
@@ -1119,7 +953,11 @@ mod tests {
     fn status_text_includes_error_and_supplementary_condition() {
         // A routine error plus a supplementary bit. MIT returns both messages
         // over successive calls; Heimdal returns only the supplementary one
-        // unless the two are displayed separately.
+        // unless the two are displayed separately. The text comes from the
+        // system GSS-API library, so this test needs one installed.
+        if let Err(why) = ffi::api() {
+            panic!("this test needs the system GSS-API library: {why}");
+        }
         let bad_sig = 6 << 16; // GSS_S_BAD_SIG
         let duplicate = 1 << 1; // GSS_S_DUPLICATE_TOKEN
         let error_text = display_status_code(bad_sig, ffi::GSS_C_GSS_CODE).expect("message");

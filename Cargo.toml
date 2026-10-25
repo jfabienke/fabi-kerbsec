@@ -42,17 +42,13 @@ tempfile = { version = "3.10", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std"], optional = true }
 sha2 = { version = "0.11", optional = true }
 
-# Unix-only GSS-API - exact version for security
+# The system GSS-API is loaded at run time (src/ffi), so building needs no
+# Kerberos headers, bindgen or libclang, and nothing links libgssapi.
 [target.'cfg(unix)'.dependencies]
-# libgssapi 0.9.1 plus raw-handle accessors (ClientCtx::raw_ctx, ServerCtx::raw_ctx); see
-# vendor/libgssapi/README.md.
-# A path dependency (not [patch]) so crates that depend on kerbsec get the patched copy too.
-libgssapi = { path = "vendor/libgssapi", version = "=0.9.1", default-features = false }
 libc = "0.2"
+libloading = "0.9"
 
 [dev-dependencies]
-# Header-derived constants/layouts that tests/ffi_abi.rs compares our hand-written FFI against
-libgssapi-sys = "0.3.1"
 tokio = { version = "1.47", features = ["rt-multi-thread", "macros"] }
 anyhow = "1.0"
 

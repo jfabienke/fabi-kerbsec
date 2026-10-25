@@ -2,6 +2,8 @@
 //! bindgen output of `libgssapi-sys`, which is generated from the real GSS-API
 //! headers installed on the build machine. A mismatch here is memory unsafety at
 //! the FFI boundary, so constants and struct layouts are compared, not re-typed.
+//! Function signatures are RFC 2744's and are exercised by the e2e tests against
+//! MIT Kerberos and Apple's GSS.framework.
 
 #![cfg(unix)]
 
@@ -63,6 +65,15 @@ fn context_flag_constants_match_headers() {
 #[test]
 fn status_and_qop_constants_match_headers() {
     assert_eq!(ffi::GSS_S_COMPLETE, sys::GSS_S_COMPLETE);
+    assert_eq!(ffi::GSS_S_CONTINUE_NEEDED, sys::_GSS_S_CONTINUE_NEEDED);
+    assert_eq!(ffi::GSS_S_UNAVAILABLE, sys::_GSS_S_UNAVAILABLE);
+    // GSS_ERROR(): the calling and routine error fields, i.e. all but the
+    // supplementary bits
+    assert_eq!(
+        !ffi::GSS_C_SUPPLEMENTARY_MASK,
+        (sys::_GSS_C_CALLING_ERROR_MASK << sys::GSS_C_CALLING_ERROR_OFFSET)
+            | (sys::_GSS_C_ROUTINE_ERROR_MASK << sys::GSS_C_ROUTINE_ERROR_OFFSET)
+    );
     assert_eq!(
         ffi::GSS_C_SUPPLEMENTARY_MASK,
         sys::_GSS_C_SUPPLEMENTARY_MASK
@@ -70,6 +81,61 @@ fn status_and_qop_constants_match_headers() {
     assert_eq!(ffi::GSS_C_QOP_DEFAULT, sys::GSS_C_QOP_DEFAULT);
     assert_eq!(ffi::GSS_C_GSS_CODE, sys::GSS_C_GSS_CODE as i32);
     assert_eq!(ffi::GSS_C_MECH_CODE, sys::GSS_C_MECH_CODE as i32);
+}
+
+#[test]
+fn credential_and_lifetime_constants_match_headers() {
+    assert_eq!(ffi::GSS_C_BOTH, sys::GSS_C_BOTH as sys::gss_cred_usage_t);
+    assert_eq!(ffi::GSS_C_INITIATE, sys::GSS_C_INITIATE as sys::gss_cred_usage_t);
+    assert_eq!(ffi::GSS_C_ACCEPT, sys::GSS_C_ACCEPT as sys::gss_cred_usage_t);
+    assert_eq!(ffi::GSS_C_INDEFINITE, sys::_GSS_C_INDEFINITE);
+    assert_eq!(ffi::GSS_C_AF_UNSPEC, sys::GSS_C_AF_UNSPEC);
+    assert_eq!(
+        size_of::<ffi::gss_cred_usage_t>(),
+        size_of::<sys::gss_cred_usage_t>()
+    );
+}
+
+/// GSS-API reads OIDs, OID sets and channel bindings kerbsec builds, so their size
+/// and field offsets must match the header (Apple packs them on Intel Macs).
+#[test]
+fn oid_and_channel_binding_layouts_match_headers() {
+    assert_eq!(
+        size_of::<ffi::gss_OID_desc>(),
+        size_of::<sys::gss_OID_desc_struct>()
+    );
+    assert_eq!(
+        offset_of!(ffi::gss_OID_desc, elements),
+        offset_of!(sys::gss_OID_desc_struct, elements)
+    );
+    assert_eq!(
+        size_of::<ffi::gss_OID_set_desc>(),
+        size_of::<sys::gss_OID_set_desc_struct>()
+    );
+    assert_eq!(
+        offset_of!(ffi::gss_OID_set_desc, elements),
+        offset_of!(sys::gss_OID_set_desc_struct, elements)
+    );
+    assert_eq!(
+        size_of::<ffi::gss_channel_bindings_struct>(),
+        size_of::<sys::gss_channel_bindings_struct>()
+    );
+    assert_eq!(
+        offset_of!(ffi::gss_channel_bindings_struct, initiator_address),
+        offset_of!(sys::gss_channel_bindings_struct, initiator_address)
+    );
+    assert_eq!(
+        offset_of!(ffi::gss_channel_bindings_struct, acceptor_addrtype),
+        offset_of!(sys::gss_channel_bindings_struct, acceptor_addrtype)
+    );
+    assert_eq!(
+        offset_of!(ffi::gss_channel_bindings_struct, acceptor_address),
+        offset_of!(sys::gss_channel_bindings_struct, acceptor_address)
+    );
+    assert_eq!(
+        offset_of!(ffi::gss_channel_bindings_struct, application_data),
+        offset_of!(sys::gss_channel_bindings_struct, application_data)
+    );
 }
 
 /// kerbsec only passes pointers to `gss_buffer_desc` values it created, so size and
@@ -122,5 +188,13 @@ fn scalar_typedefs_match_headers() {
     assert_eq!(
         size_of::<ffi::gss_ctx_id_t>(),
         size_of::<sys::gss_ctx_id_t>()
+    );
+    assert_eq!(
+        size_of::<ffi::gss_name_t>(),
+        size_of::<sys::gss_name_t>()
+    );
+    assert_eq!(
+        size_of::<ffi::gss_cred_id_t>(),
+        size_of::<sys::gss_cred_id_t>()
     );
 }

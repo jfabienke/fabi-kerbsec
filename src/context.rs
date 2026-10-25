@@ -91,8 +91,8 @@ pub struct Context {
     #[cfg(unix)]
     inner: GssContext,
     config: KerberosConfig,
-    /// `Cell` is `Send` but not `Sync`; libgssapi's context type is `Sync`, so
-    /// without this marker `Context` would silently be too.
+    /// `Cell` is `Send` but not `Sync`. The GSS handles already make `Context`
+    /// `!Sync` on Unix; the marker keeps it so on every platform.
     _not_sync: PhantomData<Cell<()>>,
 }
 
@@ -522,7 +522,8 @@ impl Context {
     /// Returns the negotiated session key for diagnostic purposes.
     ///
     /// TODO: Implement using `gss_inquire_context` with `GSS_C_INQ_SSPI_SESSION_KEY` OID.
-    /// Currently returns None as libgssapi doesn't expose the necessary APIs.
+    /// Currently returns None: it needs `gss_inquire_sec_context_by_oid`, which
+    /// kerbsec does not load.
     ///
     /// Note: The session key should NEVER be logged or transmitted. It's only
     /// useful for debugging protocol issues in controlled environments.
@@ -615,9 +616,8 @@ mod _static_assertions {
 
     // Context is deliberately !Sync (see the `_not_sync` field). The underlying GSS
     // context maintains internal state (sequence numbers, replay cache) that is
-    // not thread-safe for concurrent access, and libgssapi's own context type
-    // claims Sync, so the marker is what makes this true. A `compile_fail`
-    // doctest on `Context` guards it.
+    // not thread-safe for concurrent access. A `compile_fail` doctest on
+    // `Context` guards it.
     //
     // Users who need concurrent access should use Mutex<Context> or similar.
 }

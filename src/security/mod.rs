@@ -12,7 +12,10 @@
 //!
 
 #[cfg(unix)]
-pub mod gss;
+pub(crate) mod gss;
+
+#[cfg(unix)]
+pub(crate) mod gss_handle;
 
 #[cfg(unix)]
 pub mod gss_iov;

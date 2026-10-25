@@ -20,6 +20,10 @@ pub enum Error {
         text: String,
     },
 
+    /// The system GSS-API library could not be loaded, or lacks a function
+    #[error("GSS-API unavailable: {0}")]
+    GssUnavailable(String),
+
     /// DNS resolution failures
     #[cfg(feature = "dns")]
     #[error("DNS error: {0}")]

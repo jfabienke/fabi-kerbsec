@@ -1,0 +1,20 @@
+# CI-only check of kerbsec's hand-written GSS-API declarations (src/ffi) against
+# the bindgen output of libgssapi-sys, generated from the GSS-API headers on the
+# build machine. This is the only place bindgen runs; kerbsec itself needs no
+# headers. Run with `cd abi-check && cargo test` (needs libclang and the krb5
+# headers, e.g. libkrb5-dev; on macOS, .cargo/config.toml here points bindgen at
+# the SDK).
+
+[package]
+name = "kerbsec-abi-check"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+fabi-kerbsec = { path = "..", default-features = false, features = ["iov"] }
+libgssapi-sys = "0.3.4"
+
+# A workspace of its own, so kerbsec's builds never include it
+[workspace]

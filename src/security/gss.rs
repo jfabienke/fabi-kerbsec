@@ -5,37 +5,14 @@
 
 use crate::config::{AuthLevel, ChannelBindings, KerberosConfig};
 use crate::error::{Error, Result};
+use crate::ffi::{
+    GSS_C_CONF_FLAG, GSS_C_DCE_STYLE, GSS_C_DELEG_FLAG, GSS_C_INTEG_FLAG, GSS_C_MUTUAL_FLAG,
+    GSS_C_REPLAY_FLAG, GSS_C_SEQUENCE_FLAG,
+};
+use crate::security::gss_handle::ClientCtx;
 use crate::security::IovWrap;
-use libgssapi::context::{ClientCtx, CtxFlags, SecurityContext};
-use libgssapi::credential::{Cred, CredUsage};
-use libgssapi::name::Name;
-use libgssapi::oid::{GSS_MECH_KRB5, GSS_NT_KRB5_PRINCIPAL};
 use std::sync::Mutex;
 use std::time::Duration;
-
-// GSS context flag constants
-// These are standard GSS-API flags defined in RFC 2744
-
-/// `GSS_C_DCE_STYLE` flag (0x1000) - critical for DCE/RPC semantics
-/// This flag is not exposed by libgssapi's `CtxFlags` names, but is required for:
-/// - The three-leg handshake (the initiator sends a final token after the AP-REP)
-/// - `gss_wrap_iov` without PADDING/TRAILER buffers, as DCE/RPC frames its PDUs
-///
-/// It does not switch off sequence or replay detection; those are requested
-/// separately (see `initial_token`).
-const GSS_C_DCE_STYLE: u32 = 0x1000;
-
-/// `GSS_C_DELEG_FLAG` (0x01) - allows server to act on client's behalf
-const GSS_C_DELEG_FLAG: u32 = 0x01;
-
-/// `GSS_C_MUTUAL_FLAG` (0x02) - mutual authentication required
-const GSS_C_MUTUAL_FLAG: u32 = 0x02;
-
-/// `GSS_C_CONF_FLAG` (0x10) - confidentiality available
-const GSS_C_CONF_FLAG: u32 = 0x10;
-
-/// `GSS_C_INTEG_FLAG` (0x20) - integrity available
-const GSS_C_INTEG_FLAG: u32 = 0x20;
 
 #[cfg(feature = "trace")]
 use tracing::{debug, error, info, instrument, warn};
@@ -134,40 +111,19 @@ impl GssContext {
         #[cfg(feature = "trace")]
         info!(target: "kerbsec::gss", spn = %spn, mech = "KRB5", "initializing GSS context");
 
-        // Import as a Kerberos principal name. `GSS_NT_HOSTBASED_SERVICE` would be
-        // wrong here: it expects `service@host`, so `HOST/fqdn` was read as a bare
-        // service name with the *local* hostname appended.
-        let target = Name::new(spn.as_bytes(), Some(&GSS_NT_KRB5_PRINCIPAL)).map_err(gss_error)?;
-
-        // Create credentials (use default)
-        // Note: libgssapi 0.9.1 API changed - parameter order is different
-        let cred = Cred::acquire(
-            None,
-            Some(Duration::from_mins(5)),
-            CredUsage::Initiate,
-            None, // Use default mechanism set
-        )
-        .map_err(gss_error)?;
-
-        // Set context flags for DCE-style
-        let mut flags = CtxFlags::empty();
+        // Integrity is always required. Sequence and replay detection stay on
+        // alongside DCE_STYLE: they protect the message stream, and DCE_STYLE only
+        // changes the handshake and buffer-layout rules.
+        let mut flags = GSS_C_INTEG_FLAG | GSS_C_SEQUENCE_FLAG | GSS_C_REPLAY_FLAG;
 
         // Mutual authentication (configurable but strongly recommended)
         if self.config.require_mutual_auth {
-            flags |= CtxFlags::GSS_C_MUTUAL_FLAG;
+            flags |= GSS_C_MUTUAL_FLAG;
         }
 
-        flags |= CtxFlags::GSS_C_INTEG_FLAG; // Always required
-                                             // Sequence and replay detection stay on alongside DCE_STYLE: they protect the
-                                             // message stream, and DCE_STYLE only changes handshake/buffer-layout rules.
-        flags |= CtxFlags::GSS_C_SEQUENCE_FLAG;
-        flags |= CtxFlags::GSS_C_REPLAY_FLAG;
-
-        // Enable delegation if configured
+        // Delegation lets the server act on the client's behalf
         if self.config.enable_delegation {
-            // GSS_C_DELEG_FLAG (0x01) - allows server to act on client's behalf
-            let flags_with_deleg = flags.bits() | GSS_C_DELEG_FLAG;
-            flags = CtxFlags::from_bits_retain(flags_with_deleg);
+            flags |= GSS_C_DELEG_FLAG;
 
             #[cfg(feature = "trace")]
             debug!(target: "kerbsec::gss", "credential delegation enabled");
@@ -176,22 +132,22 @@ impl GssContext {
         // Always request confidentiality so a per-call `AuthLevel::Privacy` wrap
         // works on a context whose default is Integrity. Whether a given message is
         // sealed is still decided per call by `conf_req`.
-        flags |= CtxFlags::GSS_C_CONF_FLAG;
+        flags |= GSS_C_CONF_FLAG;
 
-        // Add GSS_C_DCE_STYLE flag when configured (default: true for DCE/RPC)
+        // DCE_STYLE (default for DCE/RPC) selects the three-leg handshake (the
+        // initiator sends a final token after the AP-REP) and lets gss_wrap_iov
+        // run without PADDING/TRAILER buffers, as DCE/RPC frames its PDUs.
         if self.config.enable_dce_style {
-            // DCE_STYLE (0x1000) selects the DCE/RPC three-leg handshake and its
-            // IOV buffer rules. libgssapi's CtxFlags has no name for it, so OR it
-            // in with from_bits_retain.
-            let flags_with_dce = flags.bits() | GSS_C_DCE_STYLE;
-            flags = CtxFlags::from_bits_retain(flags_with_dce);
+            flags |= GSS_C_DCE_STYLE;
 
             #[cfg(feature = "trace")]
-            debug!(target: "kerbsec::gss", flags = format_args!("{:#x}", flags.bits()), "context flags with DCE_STYLE");
+            debug!(target: "kerbsec::gss", flags = format_args!("{flags:#x}"), "context flags with DCE_STYLE");
         }
 
-        // Initialize context - API changed in libgssapi 0.9.1
-        let mut ctx = ClientCtx::new(Some(cred), target, flags, Some(&GSS_MECH_KRB5));
+        // The SPN is imported as a Kerberos principal name. `GSS_NT_HOSTBASED_SERVICE`
+        // would be wrong here: it expects `service@host`, so `HOST/fqdn` would be
+        // read as a bare service name with the *local* hostname appended.
+        let mut ctx = ClientCtx::new(&spn, flags, Duration::from_mins(5))?;
 
         let channel_binding_data = self.channel_binding_data()?;
 
@@ -201,13 +157,12 @@ impl GssContext {
         }
 
         // Generate initial token (AP-REQ)
-        match ctx.step(None, channel_binding_data.as_deref()) {
-            Ok(Some(token)) => {
+        match ctx.step(None, channel_binding_data.as_deref())? {
+            Some(token) => {
                 self.inner = Some(ctx);
-                Ok(token.to_vec())
+                Ok(token)
             }
-            Ok(None) => Err(Error::TokenShape),
-            Err(e) => Err(gss_error(e)),
+            None => Err(Error::TokenShape),
         }
     }
 
@@ -232,7 +187,7 @@ impl GssContext {
             Err(e) => {
                 #[cfg(feature = "trace")]
                 error!(target: "kerbsec::gss", error = %e, "failed to process AP-REP");
-                return Err(gss_error(e));
+                return Err(e);
             }
         };
 
@@ -249,7 +204,7 @@ impl GssContext {
         // Query the flags the mechanism actually negotiated, not what we
         // requested. Failing to learn them is an error: assuming the requested
         // flags were granted would fail open.
-        let negotiated_flags = ctx.flags().map_err(gss_error)?.bits();
+        let negotiated_flags = ctx.flags()?;
         if let Err(e) = verify_negotiated_flags(&self.config, negotiated_flags) {
             // Don't leave a context with weaker protection than configured
             // around where it could be wrapped/unwrapped through.
@@ -282,7 +237,7 @@ impl GssContext {
         }
 
         // DCE requires sending third leg even if empty
-        Ok(Some(token.map_or_else(Vec::new, |t| t.to_vec())))
+        Ok(Some(token.unwrap_or_default()))
     }
 
     /// Check if the security context is fully established
@@ -442,13 +397,12 @@ impl GssContext {
             return Err(Error::NoDelegatedCredentials);
         }
 
-        // TODO: Implement actual credential export when libgssapi supports it
-        // This would use gss_export_cred or similar API
+        // TODO: export through gss_export_cred (an MIT/Heimdal extension)
         #[cfg(feature = "trace")]
         warn!(target: "kerbsec::gss", "delegated credential export not yet implemented");
 
         Err(Error::NotImplemented(
-            "credential export requires libgssapi support".into(),
+            "delegated credential export is not implemented".into(),
         ))
     }
 
@@ -527,24 +481,6 @@ const fn verify_negotiated_flags(config: &KerberosConfig, flags: u32) -> Result<
         return Err(Error::FlagNotNegotiated("DCE style"));
     }
     Ok(())
-}
-
-fn gss_error(e: libgssapi::error::Error) -> Error {
-    // Extract major and minor codes from libgssapi error
-    let major = e.major.bits();
-    let minor = e.minor;
-    let text = e.to_string();
-
-    #[cfg(feature = "trace")]
-    error!(
-        target: "kerbsec::gss",
-        major = format_args!("{:#x}", major),
-        minor = format_args!("{:#x}", minor),
-        %text,
-        "GSS error"
-    );
-
-    Error::Gss { major, minor, text }
 }
 
 #[cfg(test)]
