@@ -40,6 +40,11 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+      # With dns on (as in --all-features), clippy misses some lints in the
+      # credential caches, such as or_fun_call on their errors.
+      - name: Run clippy (credential caches without dns)
+        run: cargo clippy --all-targets --features ccache,ccache-kcm,ccache-keyring -- -D warnings
+
   test:
     name: Test
     strategy:
