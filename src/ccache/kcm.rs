@@ -224,7 +224,7 @@ impl CredentialCache for KcmCache {
         // Format: KCM:uid:name or just the name
         let cache_name = path
             .to_str()
-            .ok_or(Error::Ccache {
+            .ok_or_else(|| Error::Ccache {
                 text: "Invalid cache path".to_string(),
             })?
             .to_string();
@@ -254,7 +254,7 @@ impl CredentialCache for KcmCache {
     }
 
     fn store_ticket(&mut self, credential: Credential) -> Result<()> {
-        let cache_name = self.cache_name.as_ref().ok_or(Error::Ccache {
+        let cache_name = self.cache_name.as_ref().ok_or_else(|| Error::Ccache {
             text: "Cache not opened".to_string(),
         })?;
 
@@ -276,7 +276,7 @@ impl CredentialCache for KcmCache {
     }
 
     fn get_ticket(&mut self, spn: &str) -> Result<Option<Credential>> {
-        let cache_name = self.cache_name.as_ref().ok_or(Error::Ccache {
+        let cache_name = self.cache_name.as_ref().ok_or_else(|| Error::Ccache {
             text: "Cache not opened".to_string(),
         })?;
 
@@ -300,7 +300,7 @@ impl CredentialCache for KcmCache {
     }
 
     fn remove_ticket(&mut self, spn: &str) -> Result<()> {
-        let cache_name = self.cache_name.as_ref().ok_or(Error::Ccache {
+        let cache_name = self.cache_name.as_ref().ok_or_else(|| Error::Ccache {
             text: "Cache not opened".to_string(),
         })?;
 
