@@ -332,7 +332,7 @@ impl CredentialCache for KeyringCache {
         // Path is used as the cache name
         let cache_name = path
             .to_str()
-            .ok_or(Error::Ccache {
+            .ok_or_else(|| Error::Ccache {
                 text: "Invalid cache path".to_string(),
             })?
             .to_string();

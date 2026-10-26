@@ -302,7 +302,7 @@ impl CredentialCache for FileCache {
     }
 
     fn save(&mut self, credentials: &[Credential]) -> Result<()> {
-        let path = self.path.as_ref().ok_or(Error::Ccache {
+        let path = self.path.as_ref().ok_or_else(|| Error::Ccache {
             text: "Cache path not set".to_string(),
         })?;
 
