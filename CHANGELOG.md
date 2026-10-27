@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `zeroize` is used without its `derive` feature: the five types that derived `Zeroize`
   and `ZeroizeOnDrop` implement them by hand, so the default build compiles no proc macro
   besides `thiserror`'s.
+- The `trace` feature enables only `tracing`. `tracing-subscriber`, which only the
+  examples use, is a dev-dependency, so a library built with `trace` no longer brings a
+  subscriber and its dependencies along.
 
 ### Testing
 - The e2e acceptor uses the raw GSS-API. `tests/gss_unavailable.rs` checks the error
