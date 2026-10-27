@@ -112,25 +112,18 @@ rg -i "password|secret|key|token" --type rust | grep -v "session_key\|keytab"
 - [x] Session keys never logged
 - [x] GSS tokens not logged in full
 
-### ⚠️ Memory Zeroization (TODO)
-- [ ] Session keys should be zeroized after use
-- [ ] GSS tokens should be cleared from memory
-- [ ] Consider using `zeroize` crate for sensitive buffers
-
-```rust
-// Recommendation: Add to Cargo.toml
-zeroize = { version = "1.7", features = ["derive"] }
-
-// Example usage:
-use zeroize::{Zeroize, ZeroizeOnDrop};
-
-#[derive(Zeroize, ZeroizeOnDrop)]
-struct SessionKey {
-    #[zeroize(skip)]
-    id: u32,
-    key: Vec<u8>,
-}
-```
+### ✅ Memory Zeroization
+- [x] Session keys stay inside the system GSS-API context: kerbsec never extracts
+      them (`Context::session_key` returns `None`), and dropping a context calls
+      `gss_delete_sec_context`
+- [x] Credential cache keys, tickets and principals are zeroized on drop
+      (`src/ccache/format.rs`)
+- [x] Buffers returned by the GSS library are wiped before `gss_release_buffer`
+- [x] The plaintext of a failed wrap or unwrap is zeroized, since a failed
+      in-place decryption may leave partial plaintext
+- [x] Channel-binding application data is held in a `SecureBuffer`
+- [x] Uses the `zeroize` crate, with `Zeroize`, `Drop` and `ZeroizeOnDrop`
+      implemented by hand rather than derived (no proc-macro dependency)
 
 ## Authentication Security
 
@@ -209,16 +202,11 @@ cargo license
 ## Recommendations
 
 ### High Priority
-1. **Add memory zeroization** for sensitive data
-   - Session keys
-   - GSS tokens
-   - Credential cache data
-
-2. **Add rate limiting** for auth attempts
+1. **Add rate limiting** for auth attempts
    - Prevent brute force
    - Log excessive failures
 
-3. **Add audit logging**
+2. **Add audit logging**
    - Authentication events
    - Authorization failures
    - Suspicious patterns
