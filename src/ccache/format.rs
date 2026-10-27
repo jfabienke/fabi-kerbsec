@@ -98,7 +98,7 @@ pub enum EncType {
 }
 
 /// Kerberos principal
-#[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
+#[derive(Debug, Clone)]
 pub struct Principal {
     /// Name type
     pub name_type: u32,
@@ -107,6 +107,22 @@ pub struct Principal {
     /// Components (e.g., `["user"]` or `["service", "hostname"]`)
     pub components: Vec<String>,
 }
+
+impl Zeroize for Principal {
+    fn zeroize(&mut self) {
+        self.name_type.zeroize();
+        self.realm.zeroize();
+        self.components.zeroize();
+    }
+}
+
+impl Drop for Principal {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for Principal {}
 
 impl Principal {
     /// Create a new principal
@@ -585,6 +601,20 @@ mod tests {
         assert_eq!(principal.name_type, parsed.name_type);
         assert_eq!(principal.realm, parsed.realm);
         assert_eq!(principal.components, parsed.components);
+    }
+
+    #[test]
+    fn principal_zeroize_clears_every_field() {
+        let mut principal = Principal::new(
+            NameType::ServiceHost,
+            "EXAMPLE.COM".to_string(),
+            vec!["host".to_string(), "server".to_string()],
+        );
+        principal.zeroize();
+
+        assert_eq!(principal.name_type, 0);
+        assert!(principal.realm.is_empty());
+        assert!(principal.components.is_empty());
     }
 
     #[test]

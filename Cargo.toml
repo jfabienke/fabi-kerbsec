@@ -31,7 +31,7 @@ tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"], optional = true }
 
 # Security dependencies
-zeroize = { version = "1.7", features = ["derive"] }
+zeroize = "1.7"
 subtle = "2.5"
 
 # Optional dependencies - pinned for stability

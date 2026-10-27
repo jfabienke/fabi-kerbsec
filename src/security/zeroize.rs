@@ -6,10 +6,24 @@
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Secure buffer for sensitive data that is automatically zeroed on drop
-#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone)]
 pub struct SecureBuffer {
     data: Vec<u8>,
 }
+
+impl Zeroize for SecureBuffer {
+    fn zeroize(&mut self) {
+        self.data.zeroize();
+    }
+}
+
+impl Drop for SecureBuffer {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for SecureBuffer {}
 
 impl SecureBuffer {
     /// Create a new secure buffer with the given data
@@ -96,11 +110,26 @@ impl From<&[u8]> for SecureBuffer {
 }
 
 /// Session key that is automatically zeroed on drop
-#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone)]
 pub struct SessionKey {
     key: Vec<u8>,
     algorithm: String,
 }
+
+impl Zeroize for SessionKey {
+    fn zeroize(&mut self) {
+        self.key.zeroize();
+        self.algorithm.zeroize();
+    }
+}
+
+impl Drop for SessionKey {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for SessionKey {}
 
 impl SessionKey {
     /// Create a new session key
@@ -135,10 +164,24 @@ impl SessionKey {
 }
 
 /// GSS token wrapper that ensures zeroization
-#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone)]
 pub struct GssToken {
     data: Vec<u8>,
 }
+
+impl Zeroize for GssToken {
+    fn zeroize(&mut self) {
+        self.data.zeroize();
+    }
+}
+
+impl Drop for GssToken {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for GssToken {}
 
 impl GssToken {
     /// Create a new GSS token
@@ -175,12 +218,27 @@ impl GssToken {
 }
 
 /// Wrapped message with automatic zeroization
-#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct SecureWrappedMessage {
     header: Vec<u8>,
     data: Vec<u8>,
     trailer: Vec<u8>,
 }
+
+impl Zeroize for SecureWrappedMessage {
+    fn zeroize(&mut self) {
+        self.header.zeroize();
+        self.data.zeroize();
+        self.trailer.zeroize();
+    }
+}
+
+impl Drop for SecureWrappedMessage {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for SecureWrappedMessage {}
 
 impl SecureWrappedMessage {
     /// Create a new wrapped message
@@ -290,5 +348,25 @@ mod tests {
         assert_eq!(msg.data(), &[3, 4, 5]);
         assert_eq!(msg.trailer(), &[6, 7]);
         assert_eq!(msg.total_size(), 7);
+    }
+
+    #[test]
+    fn zeroize_clears_every_field() {
+        let mut buffer = SecureBuffer::new(vec![1, 2, 3]);
+        buffer.zeroize();
+        assert!(buffer.is_empty());
+
+        let mut key = SessionKey::new(vec![0x42; 32], "AES256".to_string());
+        key.zeroize();
+        assert!(key.is_empty());
+        assert!(key.algorithm().is_empty());
+
+        let mut token = GssToken::new(vec![0xde, 0xad]);
+        token.zeroize();
+        assert!(token.is_empty());
+
+        let mut msg = SecureWrappedMessage::new(vec![1, 2], vec![3, 4, 5], vec![6, 7]);
+        msg.zeroize();
+        assert_eq!(msg.total_size(), 0);
     }
 }
