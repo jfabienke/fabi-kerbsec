@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `abi-check/`: a CI-only package comparing the declarations with the system headers
   through `libgssapi-sys` (replaces `tests/ffi_abi.rs`).
 
+### Changed
+- `zeroize` is used without its `derive` feature: the five types that derived `Zeroize`
+  and `ZeroizeOnDrop` implement them by hand, so the default build compiles no proc macro
+  besides `thiserror`'s.
+
 ### Testing
 - The e2e acceptor uses the raw GSS-API. `tests/gss_unavailable.rs` checks the error
   for a missing library.
