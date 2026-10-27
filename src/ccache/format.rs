@@ -613,8 +613,8 @@ mod tests {
         principal.zeroize();
 
         assert_eq!(principal.name_type, 0);
-        assert!(principal.realm.is_empty());
-        assert!(principal.components.is_empty());
+        assert_eq!(principal.realm, "");
+        assert_eq!(principal.components, Vec::<String>::new());
     }
 
     #[test]

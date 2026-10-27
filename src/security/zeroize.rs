@@ -359,7 +359,7 @@ mod tests {
         let mut key = SessionKey::new(vec![0x42; 32], "AES256".to_string());
         key.zeroize();
         assert!(key.is_empty());
-        assert!(key.algorithm().is_empty());
+        assert_eq!(key.algorithm(), "");
 
         let mut token = GssToken::new(vec![0xde, 0xad]);
         token.zeroize();
