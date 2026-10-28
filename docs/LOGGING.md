@@ -1,6 +1,6 @@
 # Logging Guide for kerbsec
 
-This document describes the logging capabilities in kerbsec, following the linux-wmi style with structured, feature-gated logging using the `tracing` crate.
+This document describes the logging capabilities in kerbsec, following the fabi-wmi style with structured, feature-gated logging using the `tracing` crate.
 
 ## Overview
 
@@ -153,16 +153,16 @@ debug!(
 
 This allows filtering with tools like `tokio-console` or structured log aggregators.
 
-## Integration with linux-wmi
+## Integration with fabi-wmi
 
-When using kerbsec with linux-wmi, both libraries follow the same logging patterns:
+When using kerbsec with fabi-wmi, both libraries follow the same logging patterns:
 
 ```bash
-# Enable both kerbsec and linux-wmi logging
-RUST_LOG=kerbsec=debug,linux_wmi=debug cargo run
+# Enable both kerbsec and fabi-wmi logging
+RUST_LOG=kerbsec=debug,fabi_wmi=debug cargo run
 
 # Focus on authentication issues
-RUST_LOG=kerbsec::gss=trace,linux_wmi::auth=trace cargo run
+RUST_LOG=kerbsec::gss=trace,fabi_wmi::auth=trace cargo run
 ```
 
 ## Troubleshooting Common Issues

@@ -9,7 +9,7 @@ kerbsec is a lightweight Kerberos security context library designed specifically
 ```
 ┌─────────────────────────────────────────────────────┐
 │                  Application Layer                  │
-│              (e.g., linux-wmi, SMB client)          │
+│              (e.g., fabi-wmi, SMB client)           │
 └─────────────────────────────────────────────────────┘
                            │
                            ▼

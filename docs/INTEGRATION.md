@@ -210,11 +210,11 @@ impl SmbClient {
 
 ## WMI Integration
 
-### linux-wmi Integration
+### fabi-wmi Integration
 
 ```rust
 use fabi_kerbsec::{Context, AuthLevel};
-use linux_wmi::{WmiClient, DcomTransport};
+use fabi_wmi::{WmiClient, DcomTransport};
 
 async fn wmi_with_kerberos(
     server: &str,
