@@ -17,7 +17,7 @@ This guide explains how to integrate kerbsec with various DCE/RPC transports and
 
 ```toml
 [dependencies]
-fabi-kerbsec = { path = "../kerbsec", features = ["dns", "runtime", "iov"] }
+fabi-kerbsec = { path = "../fabi-kerbsec", features = ["dns", "runtime", "iov"] }
 ```
 
 ### 2. Initialize Context

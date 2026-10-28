@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through `libgssapi-sys` (replaces `tests/ffi_abi.rs`).
 
 ### Changed
+- The repository is now `jfabienke/fabi-kerbsec`, matching the crate name (GitHub
+  redirects the old URL). A path dependency on `../kerbsec` becomes `../fabi-kerbsec`.
 - `zeroize` is used without its `derive` feature: the five types that derived `Zeroize`
   and `ZeroizeOnDrop` implement them by hand, so the default build compiles no proc macro
   besides `thiserror`'s.
@@ -274,10 +276,10 @@ Security vulnerabilities should be reported via:
 ## Links
 
 - [Documentation](https://internal.docs/kerbsec)
-- [Issue Tracker](https://github.com/jfabienke/kerbsec/issues)
+- [Issue Tracker](https://github.com/jfabienke/fabi-kerbsec/issues)
 - [Security Policy](docs/SECURITY.md)
 
-[0.3.0]: https://github.com/jfabienke/kerbsec/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/jfabienke/kerbsec/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/jfabienke/kerbsec/compare/v0.0.1...v0.1.0
-[0.0.1]: https://github.com/jfabienke/kerbsec/releases/tag/v0.0.1
+[0.3.0]: https://github.com/jfabienke/fabi-kerbsec/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/jfabienke/fabi-kerbsec/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/jfabienke/fabi-kerbsec/compare/v0.0.1...v0.1.0
+[0.0.1]: https://github.com/jfabienke/fabi-kerbsec/releases/tag/v0.0.1

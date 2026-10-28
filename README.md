@@ -41,7 +41,7 @@ This is an internal library. Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-fabi-kerbsec = { path = "../kerbsec", features = ["dns", "runtime", "ccache"] }
+fabi-kerbsec = { path = "../fabi-kerbsec", features = ["dns", "runtime", "ccache"] }
 ```
 
 ### Prerequisites
