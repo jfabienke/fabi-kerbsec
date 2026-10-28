@@ -79,7 +79,7 @@
 
 ## Integration Support
 
-### Linux-WMI Integration
+### fabi-wmi Integration
 - `examples/kerbsec_integration.rs`: Demonstrates transport integration
 - Build functions for Kerberos bind/alter_context PDUs
 - IOV wrapping for protected requests

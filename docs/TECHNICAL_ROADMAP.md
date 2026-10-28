@@ -65,7 +65,7 @@ flags = CtxFlags::from_bits_retain(flags_with_dce);
 
 ### Structured Logging ✅
 
-Module-targeted logging following linux-wmi patterns:
+Module-targeted logging following fabi-wmi patterns:
 
 ```rust
 // Feature-gated, zero-cost when disabled

@@ -144,7 +144,7 @@ let config = KerberosConfig::builder()
 kerbsec is designed as a thin wrapper around the system GSS-API:
 
 ```
-Application (e.g., linux-wmi)
+Application (e.g., fabi-wmi)
     ↓
 fabi_kerbsec::Context (Rust API)
     ↓
